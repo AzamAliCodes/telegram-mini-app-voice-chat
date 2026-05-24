@@ -41,7 +41,7 @@ async def vc_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
     keyboard = InlineKeyboardMarkup([[
         InlineKeyboardButton(
             text="🎙️ Join Voice Chat",
-            web_app=WebAppInfo(url=join_url)
+            url=join_url
         )
     ]])
 
@@ -70,7 +70,7 @@ async def show_join_button(update: Update, context: ContextTypes.DEFAULT_TYPE):
     keyboard = InlineKeyboardMarkup([[
         InlineKeyboardButton(
             text="🎙️ Join Voice Chat",
-            web_app=WebAppInfo(url=join_url)
+            url=join_url
         )
     ]])
 
