@@ -118,19 +118,43 @@ This starts the bot, backend, frontend, MongoDB, Redis, and an Nginx reverse pro
 
 **Prerequisites**: Make sure MongoDB and Redis are running locally (or set `MONGODB_URI`/`REDIS_URL` in `.env` to remote instances).
 
-**From repo root, install deps and run each in a separate terminal:**
+**From repo root, set up your environment and run each service:**
+
+### 🐍 Python Setup (Backend & Bot)
+It is highly recommended to use a virtual environment to manage dependencies:
 
 ```bash
-# Backend
+# 1. Create a virtual environment
+python -m venv venv
+
+# 2. Activate it
+# On Windows:
+.\venv\Scripts\activate
+# On Unix or macOS:
+source venv/bin/activate
+
+# 3. Install dependencies for both services
 pip install -r backend/requirements.txt
-uvicorn backend.main:app --reload --host 0.0.0.0 --port 8000
-
-# Bot
 pip install -r bot/requirements.txt
-python -m bot.main
+```
 
-# Frontend
-cd frontend && npm install
+### 🚀 Running Services
+Run each command in a separate terminal (ensure the virtual environment is activated in each):
+
+#### Backend (Signaling Server)
+```bash
+uvicorn backend.main:app --reload --host 0.0.0.0 --port 8000
+```
+
+#### Bot
+```bash
+python -m bot.main
+```
+
+#### Frontend (Mini App)
+```bash
+cd frontend
+npm install
 echo "VITE_BACKEND_URL=http://localhost:8000" > .env
 npm run dev
 ```
@@ -146,6 +170,37 @@ npm run dev
 | `GET` | `/api/room/{id}/participants` | Get active participant list |
 | `POST` | `/api/room/{id}/participants/notify` | Notify user via bot |
 | `WS` | `/ws/{room_id}/{user_id}` | WebSocket signaling relay |
+
+### Test Commands (curl)
+
+```bash
+# Health check
+curl http://localhost:8000/health
+
+# ICE/STUN config
+curl http://localhost:8000/api/ice-config
+
+# Get participants (empty room)
+curl http://localhost:8000/api/room/test123/participants
+```
+
+### Test WebSocket (wscat)
+
+```bash
+# Install
+npm install -g wscat
+
+# Terminal 1 — User A
+wscat -c "ws://localhost:8000/ws/room1/user_a"
+# after connected, paste: {"type":"join","user_info":{"first_name":"Alice"}}
+
+# Terminal 2 — User B
+wscat -c "ws://localhost:8000/ws/room1/user_b"
+# after connected, paste: {"type":"join","user_info":{"first_name":"Bob"}}
+
+# Send chat message (from either terminal)
+# {"type":"chat_message","text":"Hello!","sender_name":"Alice"}
+```
 
 ---
 
@@ -167,9 +222,10 @@ The Mini App follows the "Purple Mauve" aesthetic:
 | Bot | Railway / Render | Python worker — use **UptimeRobot** (https://uptimerobot.com) to ping every 5 min and keep it alive |
 | Backend | Railway / Render | FastAPI web service — same, UptimeRobot to prevent sleeping |
 | MongoDB | MongoDB Atlas | Free tier (512 MB) |
-| Redis | Upstash | Free tier (100 MB) |
+| Redis (room state) | Upstash Redis | Free tier (100 MB) |
+| Cron / Keep-alive | Upstash Cron or UptimeRobot | Ping `/health` every 5 min to prevent Render sleep |
 
-> **Keep-alive note**: Render free tier sleeps after 15 min of inactivity. Railway does not sleep (but has a $5 monthly credit cap). If using Render, set a free [UptimeRobot](https://uptimerobot.com) monitor for **each** service — ping the backend `/health` endpoint for the backend, and the bot's health endpoint for the bot — to keep both awake.
+> **Keep-alive note**: Render free tier sleeps after 15 min of inactivity. Railway does not sleep (but has a $5 monthly credit cap). If using Render, ping the `/health` endpoint every 5 min using **Upstash Cron** or **UptimeRobot**.
 
 ---
 
@@ -185,7 +241,7 @@ Managing secrets securely is critical for production. **NEVER commit your `.env`
 | `SUPPORT_CHANNEL` | Support channel username (without @) for /start button | Telegram |
 | `MINIAPP_URL` | The public URL of your React app | Netlify/Vercel URL |
 | `MONGODB_URI` | Connection string for MongoDB | MongoDB Atlas |
-| `REDIS_URL` | Connection string for Redis | Upstash Dashboard |
+| `REDIS_URL` | Connection string for Redis (room state) | Upstash Redis Dashboard |
 | `TURN_URL` | TURN server URL for WebRTC | Metered.ca / Twilio |
 | `TURN_USERNAME` | TURN server username | Metered.ca / Twilio |
 | `TURN_PASSWORD` | TURN server password | Metered.ca / Twilio |
