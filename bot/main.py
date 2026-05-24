@@ -2,6 +2,7 @@ import logging
 import os
 from telegram import Update, InlineKeyboardButton, InlineKeyboardMarkup
 from telegram.ext import ApplicationBuilder, CommandHandler, ContextTypes, MessageHandler, filters
+from telegram.request import HTTPXRequest
 from bot.handlers import dm_commands, group_commands
 from bot.middleware import admin_check
 from dotenv import load_dotenv
@@ -38,7 +39,10 @@ def main():
         logger.error("TELEGRAM_BOT_TOKEN not found in environment variables")
         return
 
-    application = ApplicationBuilder().token(token).build()
+    # Increase timeout for Hugging Face network latency
+    request = HTTPXRequest(connect_timeout=20, read_timeout=20)
+    
+    application = ApplicationBuilder().token(token).request(request).build()
 
     # Handlers
     application.add_handler(CommandHandler("start", start))
