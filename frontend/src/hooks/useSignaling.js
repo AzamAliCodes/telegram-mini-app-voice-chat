@@ -17,10 +17,12 @@ export function useSignaling(roomId, userId, user, onMessage) {
 
     const protocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:';
     const initData = window.Telegram?.WebApp?.initData || '';
-    const socket = new WebSocket(`${protocol}//${backendUrl}/ws/${roomId}/${userId}?init_data=${encodeURIComponent(initData)}`);
+    const wsUrl = `${protocol}//${backendUrl}/ws/${roomId}/${userId}?init_data=${encodeURIComponent(initData)}`;
+    console.log(`Connecting to WebSocket: room=${roomId}, user=${userId}`);
+    const socket = new WebSocket(wsUrl);
 
     socket.onopen = () => {
-      console.log('WebSocket connected');
+      console.log(`WebSocket Connected to room ${roomId}`);
       socket.send(JSON.stringify({
         type: 'join',
         user_info: {
@@ -28,6 +30,10 @@ export function useSignaling(roomId, userId, user, onMessage) {
           photo_url: user?.photo_url || ''
         }
       }));
+    };
+
+    socket.onerror = (error) => {
+      console.error(`WebSocket Error in room ${roomId}:`, error);
     };
 
     socket.onmessage = (event) => {

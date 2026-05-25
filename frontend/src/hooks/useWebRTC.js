@@ -92,14 +92,17 @@ export function useWebRTC(roomId, userId, wsRef) {
     };
 
     if (localStream.current) {
+      console.log(`Adding local tracks to peer connection for ${targetUserId}`);
       localStream.current.getTracks().forEach(track => {
         pc.addTrack(track, localStream.current);
       });
+    } else {
+      console.warn("No local stream available to add to peer connection");
     }
 
     pcs.current[targetUserId] = pc;
     return pc;
-  }, [wsRef]);
+  }, [wsRef, iceServers]);
 
   const handleOffer = useCallback(async (fromUserId, offer) => {
     const pc = createPeerConnection(fromUserId);

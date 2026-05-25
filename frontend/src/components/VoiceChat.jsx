@@ -44,26 +44,36 @@ export default function VoiceChat() {
     const ws = wsRef.current;
     if (!ws) return;
 
-    switch (message.type) {
-      case 'offer':
-        await handleOffer(message.from_user_id, message.offer);
-        break;
-      case 'answer':
-        await handleAnswer(message.from_user_id, message.answer);
-        break;
-      case 'ice_candidate':
-        await handleIceCandidate(message.from_user_id, message.candidate);
-        break;
-      case 'user_joined':
-        const pc = createPeerConnection(message.from_user_id);
-        const offer = await pc.createOffer();
-        await pc.setLocalDescription(offer);
-        ws.send(JSON.stringify({
-          type: 'offer',
-          target_user_id: message.from_user_id,
-          offer: offer
-        }));
-        break;
+    try {
+      switch (message.type) {
+        case 'offer':
+          console.log("Received offer from", message.from_user_id);
+          await handleOffer(message.from_user_id, message.offer);
+          break;
+        case 'answer':
+          console.log("Received answer from", message.from_user_id);
+          await handleAnswer(message.from_user_id, message.answer);
+          break;
+        case 'ice_candidate':
+          await handleIceCandidate(message.from_user_id, message.candidate);
+          break;
+        case 'user_joined':
+          console.log("User joined, creating offer for", message.from_user_id);
+          // Wait for the new user to initialize their audio and websocket
+          setTimeout(async () => {
+            const pc = createPeerConnection(message.from_user_id);
+            const offer = await pc.createOffer();
+            await pc.setLocalDescription(offer);
+            ws.send(JSON.stringify({
+              type: 'offer',
+              target_user_id: message.from_user_id,
+              offer: offer
+            }));
+          }, 1500);
+          break;
+      }
+    } catch (e) {
+      console.error("Signaling handler error:", e);
     }
   }, [handleOffer, handleAnswer, handleIceCandidate, createPeerConnection]);
 

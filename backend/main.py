@@ -28,13 +28,18 @@ async def health():
 app.include_router(ice.router, prefix="/api")
 app.include_router(rooms.router, prefix="/api")
 
+from fastapi import WebSocket, WebSocketDisconnect, Query
+from loguru import logger
 from .core.security import verify_telegram_init_data
 
 @app.websocket("/ws/{room_id}/{user_id}")
-async def websocket_endpoint(websocket: WebSocket, room_id: str, user_id: str, init_data: str = None):
+async def websocket_endpoint(websocket: WebSocket, room_id: str, user_id: str, init_data: str = Query(None)):
+    logger.info(f"Connection attempt: room={room_id}, user={user_id}, has_init_data={init_data is not None}")
+    
     # Security: Validate init_data from Telegram if in production
     if settings.ENVIRONMENT == "production":
         if not init_data or not verify_telegram_init_data(init_data, settings.TELEGRAM_BOT_TOKEN):
+            logger.warning(f"Forbidden connection attempt rejected: user={user_id}")
             await websocket.close(code=4003) # Forbidden
             return
 
@@ -45,9 +50,11 @@ async def websocket_endpoint(websocket: WebSocket, room_id: str, user_id: str, i
             message = json.loads(data)
             
             message_type = message.get("type")
+            logger.debug(f"Received message {message_type} from {user_id} in {room_id}")
             
             if message_type == "join":
                 user_info = message.get("user_info", {})
+                logger.info(f"User {user_id} ({user_info.get('first_name')}) joined room {room_id}")
                 participants = await manager.add_participant(room_id, user_id, user_info)
                 # Broadcast new state
                 await manager.broadcast_to_room(room_id, {
@@ -96,6 +103,7 @@ async def websocket_endpoint(websocket: WebSocket, room_id: str, user_id: str, i
             elif message_type == "chat_message":
                 text = message.get("text", "")
                 if text:
+                    logger.info(f"Chat from {user_id} in {room_id}: {text[:50]}")
                     await manager.broadcast_to_room(room_id, {
                         "type": "chat_message",
                         "from_user_id": user_id,
@@ -104,8 +112,12 @@ async def websocket_endpoint(websocket: WebSocket, room_id: str, user_id: str, i
                     })
                 
     except WebSocketDisconnect:
+        logger.info(f"User {user_id} disconnected from room {room_id}")
         await manager.disconnect(room_id, user_id)
         await manager.broadcast_to_room(room_id, {
             "type": "user_left",
             "from_user_id": user_id
         })
+    except Exception as e:
+        logger.error(f"WebSocket error for user {user_id}: {e}")
+        await manager.disconnect(room_id, user_id)
