@@ -40,14 +40,14 @@ async def run_bot():
         logger.error("TELEGRAM_BOT_TOKEN not found")
         return
 
-    # Ultra-resilient request settings
+    # Ultra-resilient request settings for cloud latency
     request = HTTPXRequest(connect_timeout=60, read_timeout=60, write_timeout=60, pool_timeout=60)
-    
+
     application = (
         ApplicationBuilder()
         .token(token)
         .request(request)
-        .get_updates_request(request) # Use the same high-timeout request for updates
+        .get_updates_request(request) 
         .build()
     )
 
@@ -58,26 +58,26 @@ async def run_bot():
     application.add_handler(CommandHandler("endvc", group_commands.end_vc))
     application.add_handler(MessageHandler(filters.StatusUpdate.NEW_CHAT_MEMBERS, admin_check.bot_added_to_group))
 
-    async with application:
-        await application.initialize()
-        await application.start()
-        logger.info("Bot is running...")
-        await application.updater.start_polling()
-        
-        # Keep running until interrupted
+    while True:
         try:
-            while True:
-                await asyncio.sleep(3600)
-        except (KeyboardInterrupt, SystemExit, asyncio.CancelledError):
-            await application.stop()
-            await application.shutdown()
+            async with application:
+                await application.initialize()
+                await application.start()
+                logger.info("Bot is running...")
+                await application.updater.start_polling()
+
+                # Keep running until interrupted
+                while True:
+                    await asyncio.sleep(3600)
+        except Exception as e:
+            logger.error(f"Bot connection/startup failed: {e}. Retrying in 15s...")
+            await asyncio.sleep(15)
 
 def main():
     try:
         asyncio.run(run_bot())
     except Exception as e:
-        logger.error(f"Critical failure: {e}")
-        # Let the container restart naturally
+        logger.error(f"Fatal exception: {e}")
         sys.exit(1)
 
 if __name__ == "__main__":
