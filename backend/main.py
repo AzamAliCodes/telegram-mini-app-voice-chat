@@ -33,14 +33,25 @@ from loguru import logger
 from .core.security import verify_telegram_init_data
 
 @app.websocket("/ws/{room_id}/{user_id}")
-async def websocket_endpoint(websocket: WebSocket, room_id: str, user_id: str, init_data: str = Query(None)):
-    logger.info(f"Connection attempt: room={room_id}, user={user_id}, has_init_data={init_data is not None}")
+async def websocket_endpoint(websocket: WebSocket, room_id: str, user_id: str):
+    # Extract init_data from query params manually for better reliability
+    query_params = dict(websocket.query_params)
+    init_data = query_params.get("init_data")
+    
+    logger.info(f"WS Attempt: room={room_id}, user={user_id}, has_init_data={init_data is not None}")
     
     # Security: Validate init_data from Telegram if in production
     if settings.ENVIRONMENT == "production":
-        if not init_data or not verify_telegram_init_data(init_data, settings.TELEGRAM_BOT_TOKEN):
-            logger.warning(f"Forbidden connection attempt rejected: user={user_id}")
-            await websocket.close(code=4003) # Forbidden
+        if not init_data:
+            logger.warning(f"Rejecting WS: Missing init_data for user {user_id}")
+            await websocket.accept() # Must accept before closing with custom code in some cases
+            await websocket.close(code=4003)
+            return
+            
+        if not verify_telegram_init_data(init_data, settings.TELEGRAM_BOT_TOKEN):
+            logger.warning(f"Rejecting WS: Invalid security hash for user {user_id}")
+            await websocket.accept()
+            await websocket.close(code=4003)
             return
 
     await manager.connect(websocket, room_id, user_id)
