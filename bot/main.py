@@ -40,35 +40,35 @@ async def run_bot():
         logger.error("TELEGRAM_BOT_TOKEN not found")
         return
 
-    # Ultra-resilient request settings for cloud latency
-    request = HTTPXRequest(connect_timeout=60, read_timeout=60, write_timeout=60, pool_timeout=60)
-
-    application = (
-        ApplicationBuilder()
-        .token(token)
-        .request(request)
-        .get_updates_request(request) 
-        .build()
-    )
-
-    # Handlers
-    application.add_handler(CommandHandler("start", start))
-    application.add_handler(CommandHandler("help", dm_commands.help_command))
-    application.add_handler(CommandHandler("vc", group_commands.vc_command))
-    application.add_handler(CommandHandler("endvc", group_commands.end_vc))
-    application.add_handler(MessageHandler(filters.StatusUpdate.NEW_CHAT_MEMBERS, admin_check.bot_added_to_group))
-
     while True:
         try:
+            logger.info("Initializing bot application...")
+            request = HTTPXRequest(connect_timeout=60, read_timeout=60, write_timeout=60, pool_timeout=60)
+            
+            application = (
+                ApplicationBuilder()
+                .token(token)
+                .request(request)
+                .get_updates_request(request)
+                .build()
+            )
+
+            application.add_handler(CommandHandler("start", start))
+            application.add_handler(CommandHandler("help", dm_commands.help_command))
+            application.add_handler(CommandHandler("vc", group_commands.vc_command))
+            application.add_handler(CommandHandler("endvc", group_commands.end_vc))
+            application.add_handler(MessageHandler(filters.StatusUpdate.NEW_CHAT_MEMBERS, admin_check.bot_added_to_group))
+
+            logger.info("Starting bot polling...")
             async with application:
                 await application.initialize()
                 await application.start()
-                logger.info("Bot is running...")
-                await application.updater.start_polling()
-
-                # Keep running until interrupted
-                while True:
-                    await asyncio.sleep(3600)
+                await application.updater.start_polling(drop_pending_updates=True)
+                
+                # Keep the bot running
+                while application.updater.running:
+                    await asyncio.sleep(1)
+                    
         except Exception as e:
             logger.error(f"Bot connection/startup failed: {e}. Retrying in 15s...")
             await asyncio.sleep(15)
@@ -76,12 +76,11 @@ async def run_bot():
 def main():
     try:
         asyncio.run(run_bot())
+    except KeyboardInterrupt:
+        pass
     except Exception as e:
         logger.error(f"Fatal exception: {e}")
         sys.exit(1)
-
-if __name__ == "__main__":
-    main()
 
 if __name__ == "__main__":
     main()
