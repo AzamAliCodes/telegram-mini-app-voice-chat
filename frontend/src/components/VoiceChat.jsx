@@ -91,7 +91,10 @@ export default function VoiceChat() {
   return (
     <div className="flex flex-col h-screen bg-gradient-to-br from-[#5B6BC0] via-[#4A3080] to-[#8B5A7A] p-4 font-sans text-white overflow-hidden">
       <div className="flex items-center justify-between mb-4 px-2">
-        <h1 className="text-xl font-bold tracking-tight">{roomName}</h1>
+        <div className="flex flex-col">
+            <h1 className="text-xl font-bold tracking-tight">{roomName || 'Group Voice Chat'}</h1>
+            <span className="text-[10px] text-white/50">Room: {roomId || 'None'}</span>
+        </div>
         <div className="bg-white/10 px-3 py-1 rounded-full text-xs text-white/70">
           {participants.length + 1} online
         </div>

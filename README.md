@@ -73,12 +73,6 @@ The server **never** touches audio data — only relays WebRTC signaling (offers
 | State | Zustand | Lightweight store for room state |
 | TG SDK | `@twa-dev/sdk` | Native Telegram WebApp integration |
 
-### 🌐 Infrastructure
-| Component | Technology | Notes |
-|---|---|---|
-| Proxy | Nginx | SSL termination & WebSocket proxy |
-| Container | Docker Compose | One-click service orchestration |
-
 ---
 
 ## 🤖 BotFather Setup
@@ -114,118 +108,17 @@ docker compose up --build
 ```
 This starts the bot, backend, frontend, MongoDB, Redis, and an Nginx reverse proxy.
 
-### 4. Manual Local Development
-
-**Prerequisites**: Make sure MongoDB and Redis are running locally (or set `MONGODB_URI`/`REDIS_URL` in `.env` to remote instances).
-
-**From repo root, set up your environment and run each service:**
-
-### 🐍 Python Setup (Backend & Bot)
-It is highly recommended to use a virtual environment to manage dependencies:
-
-```bash
-# 1. Create a virtual environment
-python -m venv venv
-
-# 2. Activate it
-# On Windows:
-.\venv\Scripts\activate
-# On Unix or macOS:
-source venv/bin/activate
-
-# 3. Install dependencies for both services
-pip install -r backend/requirements.txt
-pip install -r bot/requirements.txt
-```
-
-### 🚀 Running Services
-Run each command in a separate terminal (ensure the virtual environment is activated in each):
-
-#### Backend (Signaling Server)
-```bash
-uvicorn backend.main:app --reload --host 0.0.0.0 --port 8000
-```
-
-#### Bot
-```bash
-python -m bot.main
-```
-
-#### Frontend (Mini App)
-```bash
-cd frontend
-npm install
-echo "VITE_BACKEND_URL=http://localhost:8000" > .env
-npm run dev
-```
-
----
-
-## 🔌 API Documentation
-
-| Method | Endpoint | Description |
-|---|---|---|
-| `GET` | `/health` | Service health check |
-| `GET` | `/api/ice-config` | Fetch STUN/TURN server details |
-| `GET` | `/api/room/{id}/participants` | Get active participant list |
-| `POST` | `/api/room/{id}/participants/notify` | Notify user via bot |
-| `WS` | `/ws/{room_id}/{user_id}` | WebSocket signaling relay |
-
-### Test Commands (curl)
-
-```bash
-# Health check
-curl http://localhost:8000/health
-
-# ICE/STUN config
-curl http://localhost:8000/api/ice-config
-
-# Get participants (empty room)
-curl http://localhost:8000/api/room/test123/participants
-```
-
-### Test WebSocket (wscat)
-
-```bash
-# Install
-npm install -g wscat
-
-# Terminal 1 — User A
-wscat -c "ws://localhost:8000/ws/room1/user_a"
-# after connected, paste: {"type":"join","user_info":{"first_name":"Alice"}}
-
-# Terminal 2 — User B
-wscat -c "ws://localhost:8000/ws/room1/user_b"
-# after connected, paste: {"type":"join","user_info":{"first_name":"Bob"}}
-
-# Send chat message (from either terminal)
-# {"type":"chat_message","text":"Hello!","sender_name":"Alice"}
-```
-
----
-
-## 🎨 Design System
-The Mini App follows the "Purple Mauve" aesthetic:
-- **Background**: 3-stop diagonal gradient (`#5B6BC0`, `#4A3080`, `#8B5A7A`).
-- **Cards**: Frosted glass (`backdrop-blur-xl`) with white semi-transparent backgrounds.
-- **Typography**: Native Telegram system font stack.
-
----
-
 ---
 
 ## 🌐 Deployment
 
 | Service | Platform | Notes |
 |---------|----------|-------|
-| Frontend | Vercel / Netlify / Cloudflare Pages | Static SPA — connect your repo, auto-deploys |
-| Bot | Railway / Render | Python worker — use **UptimeRobot** (https://uptimerobot.com) to ping every 5 min and keep it alive |
-| Backend | Railway / Render | FastAPI web service — same, UptimeRobot to prevent sleeping |
-| MongoDB | MongoDB Atlas | Free tier (512 MB) |
-| Redis (room state) | Upstash Redis | Free tier (100 MB) |
-| Cron / Keep-alive | Upstash Cron or UptimeRobot | Ping `/health` every 5 min to prevent Render sleep |
-
-> **Keep-alive note**: Render free tier sleeps after 15 min of inactivity. Railway does not sleep (but has a $5 monthly credit cap). If using Render, ping the `/health` endpoint every 5 min using **Upstash Cron** or **UptimeRobot**.
+| Frontend | Netlify / Vercel | Static SPA — connect your repo, auto-deploys |
+| Bot | Hugging Face Spaces | Docker SDK — Runs 24/7 for free |
+| Backend | Hugging Face Spaces | Docker SDK — Same container as Bot |
+| MongoDB | MongoDB Atlas | Free tier (512 MB) — Allow IP `0.0.0.0/0` |
+| Redis | Upstash Redis | Free tier (100 MB) — Always on |
 
 ---
 
@@ -233,28 +126,45 @@ The Mini App follows the "Purple Mauve" aesthetic:
 
 Managing secrets securely is critical for production. **NEVER commit your `.env` file to version control.**
 
-### Shared Environment Variables (.env — root)
+### 🛠️ Service-Specific Environment Mapping
+
+When deploying, add these variables to the respective hosting platforms:
+
+#### 1. Backend & Bot (Hugging Face Spaces - Docker)
+| Variable | Value / Source |
+|---|---|
+| `MONGODB_URI` | Your MongoDB Atlas connection string |
+| `REDIS_URL` | Your Upstash Redis connection string |
+| `TELEGRAM_BOT_TOKEN` | Your Bot Token from @BotFather |
+| `TELEGRAM_BOT_USERNAME` | Your bot's username (without @) |
+| `MINIAPP_URL` | Your public Netlify URL (e.g., `https://site.netlify.app`) |
+| `BACKEND_URL` | Your HF Direct URL (e.g., `https://user-space.hf.space`) |
+| `ENVIRONMENT` | `production` |
+| `SECRET_KEY` | A long random string for security |
+
+#### 2. Frontend (Netlify - Static Site)
+| Variable | Value / Source |
+|---|---|
+| `VITE_BACKEND_URL` | Your HF Backend URL (starts with `https://`) |
+| `VITE_WS_URL` | Your HF Backend URL (starts with `wss://`) |
+
+---
+
+### Shared Environment Variables (.env — root reference)
 
 | Variable | Description | Source |
 |---|---|---|
 | `TELEGRAM_BOT_TOKEN` | API Token for your bot | @BotFather |
-| `SUPPORT_CHANNEL` | Support channel username (without @) for /start button | Telegram |
-| `MINIAPP_URL` | The public URL of your React app | Netlify/Vercel URL |
+| `SUPPORT_CHANNEL` | Support channel username (without @) | Telegram |
+| `MINIAPP_URL` | The public URL of your React app | Netlify URL |
 | `MONGODB_URI` | Connection string for MongoDB | MongoDB Atlas |
-| `REDIS_URL` | Connection string for Redis (room state) | Upstash Redis Dashboard |
+| `REDIS_URL` | Connection string for Redis | Upstash Redis |
 | `TURN_URL` | TURN server URL for WebRTC | Metered.ca / Twilio |
 | `TURN_USERNAME` | TURN server username | Metered.ca / Twilio |
 | `TURN_PASSWORD` | TURN server password | Metered.ca / Twilio |
-| `BACKEND_URL` | Public URL of your FastAPI server | Render URL |
-| `ENVIRONMENT` | `development` or `production` (Safety Switch) | Manual |
-| `SECRET_KEY` | "Master Key" for signing session data | `openssl rand -hex 32` |
-
-### Frontend Environment Variables (frontend/.env)
-
-| Variable | Description | Example |
-|---|---|---|
-| `VITE_BACKEND_URL` | HTTP URL of the backend | `https://your-backend.onrender.com` |
-| `VITE_WS_URL` | WebSocket URL of the backend | `wss://your-backend.onrender.com` |
+| `BACKEND_URL` | Public URL of your FastAPI server | HF Direct URL |
+| `ENVIRONMENT` | `production` | Manual |
+| `SECRET_KEY` | "Master Key" for security | Random string |
 
 ---
 

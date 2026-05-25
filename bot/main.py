@@ -43,7 +43,8 @@ async def run_bot():
     while True:
         try:
             logger.info("Initializing bot application...")
-            request = HTTPXRequest(connect_timeout=60, read_timeout=60, write_timeout=60, pool_timeout=60)
+            # Ultra-resilient settings for extreme cloud latency
+            request = HTTPXRequest(connect_timeout=100, read_timeout=100, write_timeout=100, pool_timeout=100)
             
             application = (
                 ApplicationBuilder()

@@ -9,15 +9,16 @@ export function useSignaling(roomId, userId, user, onMessage) {
   useEffect(() => {
     if (!roomId || !userId) return;
 
+    // Prevent double connections if userId/roomId haven't changed
+    if (wsRef.current && wsRef.current.readyState === WebSocket.OPEN) return;
+
     let backendUrl = import.meta.env.VITE_BACKEND_URL || 'localhost:8000';
-    
-    // Remove protocol if present
-    backendUrl = backendUrl.replace(/^https?:\/\//, '');
-    backendUrl = backendUrl.replace(/^wss?:\/\//, '');
+    backendUrl = backendUrl.replace(/^https?:\/\//, '').replace(/^wss?:\/\//, '');
 
     const protocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:';
     const initData = window.Telegram?.WebApp?.initData || '';
     const wsUrl = `${protocol}//${backendUrl}/ws/${roomId}/${userId}?init_data=${encodeURIComponent(initData)}`;
+    
     console.log(`Connecting to WebSocket: room=${roomId}, user=${userId}`);
     const socket = new WebSocket(wsUrl);
 
@@ -32,22 +33,21 @@ export function useSignaling(roomId, userId, user, onMessage) {
       }));
     };
 
-    socket.onerror = (error) => {
-      console.error(`WebSocket Error in room ${roomId}:`, error);
-    };
-
     socket.onmessage = (event) => {
       const message = JSON.parse(event.data);
       const { updateParticipant } = useRoomStore.getState();
 
       switch (message.type) {
         case 'room_state':
+          console.log("Received room state:", message.participants);
           setParticipants(message.participants);
           break;
         case 'user_joined':
+          console.log("Remote user joined:", message.user_info.first_name);
           addParticipant({ user_id: message.from_user_id, ...message.user_info });
           break;
         case 'user_left':
+          console.log("Remote user left:", message.from_user_id);
           removeParticipant(message.from_user_id);
           break;
         case 'speaking':
@@ -66,23 +66,24 @@ export function useSignaling(roomId, userId, user, onMessage) {
           break;
       }
 
-      if (onMessage) {
-        onMessage(message);
-      }
+      if (onMessage) onMessage(message);
     };
-
 
     socket.onclose = () => {
       console.log('WebSocket disconnected');
+      wsRef.current = null;
+      setWs(null);
     };
 
     wsRef.current = socket;
     setWs(socket);
 
     return () => {
-      socket.close();
+      if (socket.readyState === WebSocket.OPEN) {
+        socket.close();
+      }
     };
-  }, [roomId, userId, user]);
+  }, [roomId, userId]); // Only reconnect if room or user ID changes
 
   useEffect(() => {
     if (ws && ws.readyState === WebSocket.OPEN) {

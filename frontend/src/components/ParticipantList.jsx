@@ -22,7 +22,9 @@ export default function ParticipantList() {
       {participants.length > 0 && <div className="h-px bg-white/5 my-2 mx-4" />}
 
       {/* Remote Users */}
-      {participants.map((p) => (
+      {participants
+        .filter(p => p.user_id !== user?.id?.toString())
+        .map((p) => (
         <ParticipantCard 
           key={p.user_id} 
           name={p.first_name} 
@@ -32,7 +34,7 @@ export default function ParticipantList() {
         />
       ))}
       
-      {participants.length === 0 && (
+      {participants.filter(p => p.user_id !== user?.id?.toString()).length === 0 && (
         <div className="py-10 text-center flex flex-col items-center gap-2 opacity-30">
           <p className="text-sm font-medium">Waiting for others...</p>
           <p className="text-[10px]">Invite members to join this room</p>
