@@ -1,5 +1,7 @@
 import logging
 import os
+import time
+import sys
 from telegram import Update, InlineKeyboardButton, InlineKeyboardMarkup
 from telegram.ext import ApplicationBuilder, CommandHandler, ContextTypes, MessageHandler, filters
 from telegram.request import HTTPXRequest
@@ -37,25 +39,33 @@ def main():
     token = os.getenv("TELEGRAM_BOT_TOKEN")
     if not token:
         logger.error("TELEGRAM_BOT_TOKEN not found in environment variables")
-        return
+        sys.exit(1)
 
-    # Increase timeout for Hugging Face network latency
-    request = HTTPXRequest(connect_timeout=20, read_timeout=20)
+    # Extreme timeout settings for slow cloud networks
+    request = HTTPXRequest(
+        connect_timeout=60,
+        read_timeout=60,
+        write_timeout=60,
+        pool_timeout=60
+    )
     
-    application = ApplicationBuilder().token(token).request(request).build()
+    application = (
+        ApplicationBuilder()
+        .token(token)
+        .request(request)
+        .get_updates_request(HTTPXRequest(connect_timeout=60, read_timeout=60))
+        .build()
+    )
 
     # Handlers
     application.add_handler(CommandHandler("start", start))
     application.add_handler(CommandHandler("help", dm_commands.help_command))
-    
-    # Group Handlers
     application.add_handler(CommandHandler("vc", group_commands.vc_command))
     application.add_handler(CommandHandler("endvc", group_commands.end_vc))
-    
-    # New chat member / Bot added to group handler
     application.add_handler(MessageHandler(filters.StatusUpdate.NEW_CHAT_MEMBERS, admin_check.bot_added_to_group))
 
-    logger.info("Bot started")
+    logger.info("Bot starting...")
+    # run_polling handles its own internal retry logic for connection errors
     application.run_polling()
 
 if __name__ == "__main__":

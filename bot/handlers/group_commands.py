@@ -22,8 +22,12 @@ async def vc_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
         return
 
     room_id = f"vc_{abs(int(chat_id))}_{int(time.time())}"
-    miniapp_url = os.getenv("MINIAPP_URL", "https://your-domain.com")
-    join_url = f"{miniapp_url}?room={room_id}"
+    miniapp_url = os.getenv("MINIAPP_URL")
+    if not miniapp_url:
+        await update.message.reply_text("❌ MINIAPP_URL not configured. Please add it to server secrets.")
+        return
+        
+    join_url = f"{miniapp_url.rstrip('/')}/?room={room_id}"
 
     await groups_collection.update_one(
         {"_id": chat_id},
