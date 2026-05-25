@@ -4,7 +4,7 @@ export const useRoomStore = create((set) => ({
   participants: [],
   isMuted: true,
   isSpeakerOn: true,
-  roomName: new URLSearchParams(window.location.search).get('room_name') || 'Voice Chat',
+  roomName: 'Voice Chat',
   messages: [],
   showChat: false,
 

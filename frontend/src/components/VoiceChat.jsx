@@ -16,15 +16,29 @@ export default function VoiceChat() {
   const wsRef = useRef(null);
 
   useEffect(() => {
+    // Room ID = group chat ID, passed via startapp parameter
+    // When opened via t.me/bot?startapp=<group_chat_id>, Telegram passes it
+    // through WebApp.initDataUnsafe.start_param
+    const startParam = tg?.initDataUnsafe?.start_param;
+    
+    // Fallback: also check URL query params and hash for compatibility
     const params = new URLSearchParams(window.location.search);
-    const id = params.get('room');
+    const queryRoom = params.get('room');
+    const hashParams = new URLSearchParams(window.location.hash.replace('#', '?'));
+    const hashRoom = hashParams.get('tgWebAppStartParam');
+    
+    const id = startParam || queryRoom || hashRoom;
     setRoomId(id);
+    
     tg?.ready();
     tg?.expand();
     enableClosingConfirmation();
   }, [tg]);
 
-  const { handleOffer, handleAnswer, handleIceCandidate, createPeerConnection } = useWebRTC(roomId, user?.id?.toString(), wsRef);
+  // User ID is the Telegram user ID (as string)
+  const userId = user?.id?.toString();
+
+  const { handleOffer, handleAnswer, handleIceCandidate, createPeerConnection } = useWebRTC(roomId, userId, wsRef);
 
   const onSignalingMessage = useCallback(async (message) => {
     const ws = wsRef.current;
@@ -53,7 +67,7 @@ export default function VoiceChat() {
     }
   }, [handleOffer, handleAnswer, handleIceCandidate, createPeerConnection]);
 
-  const ws = useSignaling(roomId, user?.id?.toString(), user, onSignalingMessage);
+  const ws = useSignaling(roomId, userId, user, onSignalingMessage);
   wsRef.current = ws;
 
   const onLeave = () => {

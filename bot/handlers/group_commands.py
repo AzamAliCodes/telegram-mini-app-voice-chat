@@ -1,10 +1,9 @@
-from telegram import Update, InlineKeyboardButton, InlineKeyboardMarkup, WebAppInfo
+from telegram import Update, InlineKeyboardButton, InlineKeyboardMarkup
 from telegram.ext import ContextTypes
 from ..core.db import groups_collection
 from ..utils.telegram_helpers import is_admin
 from ..middleware.admin_check import check_bot_admin
 from datetime import datetime
-import time
 import os
 
 async def vc_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
@@ -21,13 +20,9 @@ async def vc_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
         await update.message.reply_text("Only admins can start a voice chat.")
         return
 
-    room_id = f"vc_{abs(int(chat_id))}_{int(time.time())}"
-    miniapp_url = os.getenv("MINIAPP_URL")
-    if not miniapp_url:
-        await update.message.reply_text("❌ MINIAPP_URL not configured. Please add it to server secrets.")
-        return
-        
-    join_url = f"{miniapp_url.rstrip('/')}/?room={room_id}"
+    # Room ID is simply the group chat ID (absolute value)
+    # This way there's one voice chat room per group, naturally
+    room_id = str(abs(int(chat_id)))
 
     await groups_collection.update_one(
         {"_id": chat_id},
@@ -39,13 +34,22 @@ async def vc_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
                     "started_by": update.effective_user.id
                 }
             }
-        }
+        },
+        upsert=True
     )
+
+    # web_app buttons are NOT supported in group chats (only private chats).
+    # Use a t.me direct link with startapp param to open the Mini App natively in Telegram.
+    bot_username = os.getenv("TELEGRAM_BOT_USERNAME", "tgvcgroup_bot")
+    
+    # startapp param passes the room_id (group chat ID) to the Mini App
+    # The Mini App reads it via Telegram.WebApp.initDataUnsafe.start_param
+    miniapp_link = f"https://t.me/{bot_username}?startapp={room_id}"
 
     keyboard = InlineKeyboardMarkup([[
         InlineKeyboardButton(
             text="🎙️ Join Voice Chat",
-            web_app=WebAppInfo(url=join_url)
+            url=miniapp_link
         )
     ]])
 
@@ -68,13 +72,13 @@ async def show_join_button(update: Update, context: ContextTypes.DEFAULT_TYPE):
         return
 
     room_id = group["active_session"]["room_id"]
-    miniapp_url = os.getenv("MINIAPP_URL", "https://your-domain.com")
-    join_url = f"{miniapp_url}?room={room_id}"
+    bot_username = os.getenv("TELEGRAM_BOT_USERNAME", "tgvcgroup_bot")
+    miniapp_link = f"https://t.me/{bot_username}?startapp={room_id}"
 
     keyboard = InlineKeyboardMarkup([[
         InlineKeyboardButton(
             text="🎙️ Join Voice Chat",
-            url=join_url
+            url=miniapp_link
         )
     ]])
 
