@@ -1,4 +1,4 @@
-import { useEffect, useRef, useCallback } from 'react';
+import { useEffect, useRef, useCallback, useState } from 'react';
 import { useRoomStore } from '../store/roomStore';
 
 export function useWebRTC(roomId, userId, wsRef) {
@@ -6,6 +6,7 @@ export function useWebRTC(roomId, userId, wsRef) {
   const localStream = useRef(null);
   const iceServers = useRef([{ urls: 'stun:stun.l.google.com:19302' }]);
   const { isMuted } = useRoomStore();
+  const [streamReady, setStreamReady] = useState(false);
 
   useEffect(() => {
     async function fetchIceConfig() {
@@ -33,8 +34,12 @@ export function useWebRTC(roomId, userId, wsRef) {
         localStream.current.getAudioTracks().forEach(track => {
             track.enabled = !isMuted;
         });
+        console.log("Local audio stream initialized successfully.");
+        setStreamReady(true);
       } catch (err) {
         console.error("Error accessing microphone:", err);
+        // We set it to true anyway so they can at least hear others if mic fails
+        setStreamReady(true); 
       }
     }
 
@@ -135,5 +140,5 @@ export function useWebRTC(roomId, userId, wsRef) {
     }
   }, []);
 
-  return { handleOffer, handleAnswer, handleIceCandidate, createPeerConnection };
+  return { handleOffer, handleAnswer, handleIceCandidate, createPeerConnection, streamReady };
 }

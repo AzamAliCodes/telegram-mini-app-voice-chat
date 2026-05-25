@@ -139,6 +139,7 @@ When deploying, add these variables to the respective hosting platforms:
 | `TELEGRAM_BOT_USERNAME` | Your bot's username (without @) |
 | `MINIAPP_URL` | Your public Netlify URL (e.g., `https://site.netlify.app`) |
 | `BACKEND_URL` | Your HF Direct URL (e.g., `https://user-space.hf.space`) |
+| `TELEGRAM_API_PROXY` | *(Optional)* Cloudflare Worker URL to bypass API blocks |
 | `ENVIRONMENT` | `production` |
 | `SECRET_KEY` | A long random string for security |
 
@@ -147,6 +148,37 @@ When deploying, add these variables to the respective hosting platforms:
 |---|---|
 | `VITE_BACKEND_URL` | Your HF Backend URL (starts with `https://`) |
 | `VITE_WS_URL` | Your HF Backend URL (starts with `wss://`) |
+
+---
+
+### 🛡️ Bypassing Cloud Firewalls (Cloudflare Proxy)
+
+If you are hosting the Bot on a free service like Hugging Face Spaces, your connection to `api.telegram.org` might be blocked, resulting in a `ConnectError` or timeout in your logs.
+
+You can bypass this for free by creating a Cloudflare Worker to act as a proxy:
+
+1. Sign up for a free [Cloudflare](https://dash.cloudflare.com/) account.
+2. Go to **Workers & Pages** in the left sidebar.
+3. Click **Create application** and then select **Start with Hello World!**.
+4. Name your worker (e.g., `tg-proxy`) and click the blue **Deploy** button.
+5. Once deployed, click the **Edit Code** button.
+6. Delete the existing code and replace it with this exact script:
+   ```javascript
+   export default {
+     async fetch(request) {
+       const url = new URL(request.url);
+       url.host = 'api.telegram.org';
+       return fetch(new Request(url, request));
+     },
+   };
+   ```
+7. Click **Deploy** in the top right corner.
+8. Copy your new Worker URL (e.g., `https://tg-proxy.yourname.workers.dev`). Note: A `404` error when visiting this link directly is normal!
+9. In your hosting provider's Secrets (e.g., Hugging Face Settings), add a new secret:
+   * **Key:** `TELEGRAM_API_PROXY`
+   * **Value:** Your Worker URL (without a trailing slash).
+
+Restart your server, and the bot will connect successfully!
 
 ---
 

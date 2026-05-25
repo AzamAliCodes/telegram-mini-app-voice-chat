@@ -38,7 +38,7 @@ export default function VoiceChat() {
   // User ID is the Telegram user ID (as string)
   const userId = user?.id?.toString();
 
-  const { handleOffer, handleAnswer, handleIceCandidate, createPeerConnection } = useWebRTC(roomId, userId, wsRef);
+  const { handleOffer, handleAnswer, handleIceCandidate, createPeerConnection, streamReady } = useWebRTC(roomId, userId, wsRef);
 
   const onSignalingMessage = useCallback(async (message) => {
     const ws = wsRef.current;
@@ -77,7 +77,8 @@ export default function VoiceChat() {
     }
   }, [handleOffer, handleAnswer, handleIceCandidate, createPeerConnection]);
 
-  const ws = useSignaling(roomId, userId, user, onSignalingMessage);
+  // Only connect to WebSocket AFTER the microphone is ready
+  const ws = useSignaling(streamReady ? roomId : null, userId, user, onSignalingMessage);
   wsRef.current = ws;
 
   const onLeave = () => {

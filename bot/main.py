@@ -40,19 +40,29 @@ async def run_bot():
         logger.error("TELEGRAM_BOT_TOKEN not found")
         return
 
+    # Check for custom API URL (Cloudflare Bridge)
+    custom_api_url = os.getenv("TELEGRAM_API_PROXY")
+
     while True:
         try:
             logger.info("Initializing bot application...")
             # Ultra-resilient settings for extreme cloud latency
             request = HTTPXRequest(connect_timeout=100, read_timeout=100, write_timeout=100, pool_timeout=100)
             
-            application = (
+            builder = (
                 ApplicationBuilder()
                 .token(token)
                 .request(request)
                 .get_updates_request(request)
-                .build()
             )
+            
+            if custom_api_url:
+                logger.info(f"Using Telegram API Proxy: {custom_api_url}")
+                # Ensure the URL is correctly formatted for python-telegram-bot
+                clean_url = f"{custom_api_url.rstrip('/')}/bot"
+                builder = builder.base_url(clean_url)
+
+            application = builder.build()
 
             application.add_handler(CommandHandler("start", start))
             application.add_handler(CommandHandler("help", dm_commands.help_command))

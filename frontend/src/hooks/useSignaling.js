@@ -16,6 +16,8 @@ export function useSignaling(roomId, userId, user, onMessage) {
     backendUrl = backendUrl.replace(/^https?:\/\//, '').replace(/^wss?:\/\//, '');
 
     const protocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:';
+    
+    // Telegram initData is already a URL-encoded string of parameters
     const initData = window.Telegram?.WebApp?.initData || '';
     const wsUrl = `${protocol}//${backendUrl}/ws/${roomId}/${userId}?init_data=${encodeURIComponent(initData)}`;
     
@@ -24,6 +26,7 @@ export function useSignaling(roomId, userId, user, onMessage) {
 
     socket.onopen = () => {
       console.log(`WebSocket Connected to room ${roomId}`);
+      // Send join event immediately
       socket.send(JSON.stringify({
         type: 'join',
         user_info: {
@@ -34,39 +37,44 @@ export function useSignaling(roomId, userId, user, onMessage) {
     };
 
     socket.onmessage = (event) => {
-      const message = JSON.parse(event.data);
-      const { updateParticipant } = useRoomStore.getState();
+      try {
+          const message = JSON.parse(event.data);
+          const { updateParticipant } = useRoomStore.getState();
 
-      switch (message.type) {
-        case 'room_state':
-          console.log("Received room state:", message.participants);
-          setParticipants(message.participants);
-          break;
-        case 'user_joined':
-          console.log("Remote user joined:", message.user_info.first_name);
-          addParticipant({ user_id: message.from_user_id, ...message.user_info });
-          break;
-        case 'user_left':
-          console.log("Remote user left:", message.from_user_id);
-          removeParticipant(message.from_user_id);
-          break;
-        case 'speaking':
-          updateParticipant(message.from_user_id, { is_speaking: message.is_speaking });
-          break;
-        case 'mute':
-          updateParticipant(message.from_user_id, { is_muted: message.is_muted });
-          break;
-        case 'chat_message':
-          addMessage({
-            id: Date.now() + Math.random(),
-            from_user_id: message.from_user_id,
-            sender_name: message.sender_name,
-            text: message.text
-          });
-          break;
+          switch (message.type) {
+            case 'room_state':
+              console.log("Received room state:", message.participants);
+              setParticipants(message.participants);
+              break;
+            case 'user_joined':
+              console.log("Remote user joined:", message.user_info.first_name);
+              // Force add the new participant immediately
+              addParticipant({ user_id: message.from_user_id, ...message.user_info });
+              break;
+            case 'user_left':
+              console.log("Remote user left:", message.from_user_id);
+              removeParticipant(message.from_user_id);
+              break;
+            case 'speaking':
+              updateParticipant(message.from_user_id, { is_speaking: message.is_speaking });
+              break;
+            case 'mute':
+              updateParticipant(message.from_user_id, { is_muted: message.is_muted });
+              break;
+            case 'chat_message':
+              addMessage({
+                id: Date.now() + Math.random(),
+                from_user_id: message.from_user_id,
+                sender_name: message.sender_name,
+                text: message.text
+              });
+              break;
+          }
+
+          if (onMessage) onMessage(message);
+      } catch (err) {
+          console.error("Failed to parse WebSocket message:", err);
       }
-
-      if (onMessage) onMessage(message);
     };
 
     socket.onclose = () => {
