@@ -3,15 +3,19 @@ import { useRoomStore } from '../store/roomStore';
 
 export function useSignaling(roomId, userId, user, onMessage) {
   const [ws, setWs] = useState(null);
-  const { addParticipant, removeParticipant, setParticipants, addMessage } = useRoomStore();
+  const { addParticipant, removeParticipant, setParticipants, addMessage, isMuted } = useRoomStore();
   const wsRef = useRef(null);
 
   useEffect(() => {
     if (!roomId || !userId) return;
 
-    const backendUrl = import.meta.env.VITE_BACKEND_URL || 'localhost:8000';
-    const protocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:';
+    let backendUrl = import.meta.env.VITE_BACKEND_URL || 'localhost:8000';
+    
+    // Remove protocol if present
+    backendUrl = backendUrl.replace(/^https?:\/\//, '');
+    backendUrl = backendUrl.replace(/^wss?:\/\//, '');
 
+    const protocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:';
     const initData = window.Telegram?.WebApp?.initData || '';
     const socket = new WebSocket(`${protocol}//${backendUrl}/ws/${roomId}/${userId}?init_data=${encodeURIComponent(initData)}`);
 
@@ -28,6 +32,7 @@ export function useSignaling(roomId, userId, user, onMessage) {
 
     socket.onmessage = (event) => {
       const message = JSON.parse(event.data);
+      const { updateParticipant } = useRoomStore.getState();
 
       switch (message.type) {
         case 'room_state':
@@ -40,16 +45,10 @@ export function useSignaling(roomId, userId, user, onMessage) {
           removeParticipant(message.from_user_id);
           break;
         case 'speaking':
-          const updatedParticipants = useRoomStore.getState().participants.map(p =>
-            p.user_id === message.from_user_id ? { ...p, is_speaking: message.is_speaking } : p
-          );
-          setParticipants(updatedParticipants);
+          updateParticipant(message.from_user_id, { is_speaking: message.is_speaking });
           break;
         case 'mute':
-          const mutedParticipants = useRoomStore.getState().participants.map(p =>
-            p.user_id === message.from_user_id ? { ...p, is_muted: message.is_muted } : p
-          );
-          setParticipants(mutedParticipants);
+          updateParticipant(message.from_user_id, { is_muted: message.is_muted });
           break;
         case 'chat_message':
           addMessage({
@@ -78,6 +77,15 @@ export function useSignaling(roomId, userId, user, onMessage) {
       socket.close();
     };
   }, [roomId, userId, user]);
+
+  useEffect(() => {
+    if (ws && ws.readyState === WebSocket.OPEN) {
+      ws.send(JSON.stringify({
+        type: 'mute',
+        is_muted: isMuted
+      }));
+    }
+  }, [isMuted, ws]);
 
   return ws;
 }

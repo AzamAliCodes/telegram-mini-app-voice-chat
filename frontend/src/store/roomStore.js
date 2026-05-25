@@ -12,6 +12,11 @@ export const useRoomStore = create((set) => ({
   addParticipant: (participant) => set((state) => ({
     participants: [...state.participants, participant]
   })),
+  updateParticipant: (userId, updates) => set((state) => ({
+    participants: state.participants.map(p => 
+      p.user_id === userId ? { ...p, ...updates } : p
+    )
+  })),
   removeParticipant: (userId) => set((state) => ({
     participants: state.participants.filter(p => p.user_id !== userId)
   })),

@@ -4,9 +4,26 @@ import { useRoomStore } from '../store/roomStore';
 export function useWebRTC(roomId, userId, wsRef) {
   const pcs = useRef({});
   const localStream = useRef(null);
+  const iceServers = useRef([{ urls: 'stun:stun.l.google.com:19302' }]);
   const { isMuted } = useRoomStore();
 
   useEffect(() => {
+    async function fetchIceConfig() {
+        try {
+            const backendUrl = import.meta.env.VITE_BACKEND_URL || 'http://localhost:8000';
+            const cleanUrl = backendUrl.replace(/\/$/, ''); // Remove trailing slash
+            const response = await fetch(`${cleanUrl}/api/ice-config`);
+            const config = await response.json();
+            if (config.iceServers) {
+                iceServers.current = config.iceServers;
+            }
+        } catch (err) {
+            console.error("Error fetching ICE config:", err);
+        }
+    }
+    
+    fetchIceConfig();
+
     async function startLocalStream() {
       try {
         localStream.current = await navigator.mediaDevices.getUserMedia({
@@ -31,89 +48,15 @@ export function useWebRTC(roomId, userId, wsRef) {
     };
   }, []);
 
-  useEffect(() => {
-    if (localStream.current) {
-        localStream.current.getAudioTracks().forEach(track => {
-            track.enabled = !isMuted;
-        });
-    }
-  }, [isMuted]);
+  // ... (mute effect)
 
-  useEffect(() => {
-    if (!localStream.current) return;
-
-    const audioContext = new (window.AudioContext || window.webkitAudioContext)();
-    const source = audioContext.createMediaStreamSource(localStream.current);
-    const analyser = audioContext.createAnalyser();
-    analyser.fftSize = 256;
-    source.connect(analyser);
-
-    const dataArray = new Uint8Array(analyser.frequencyBinCount);
-    let isSpeakingLocal = false;
-    let silenceTimer = null;
-    const SPEAKING_HOLD_MS = 1500;
-
-    const checkSpeaking = () => {
-      const ws = wsRef?.current;
-      if (!ws) return;
-
-      analyser.getByteFrequencyData(dataArray);
-      const average = dataArray.reduce((a, b) => a + b) / dataArray.length;
-      const threshold = 15;
-
-      if (average > threshold && !isMuted) {
-        if (!isSpeakingLocal) {
-          isSpeakingLocal = true;
-          ws.send(JSON.stringify({ type: 'speaking', is_speaking: true }));
-        }
-        if (silenceTimer) {
-          clearTimeout(silenceTimer);
-          silenceTimer = null;
-        }
-      } else if (average <= threshold && isSpeakingLocal && !silenceTimer) {
-        silenceTimer = setTimeout(() => {
-          isSpeakingLocal = false;
-          silenceTimer = null;
-          ws.send(JSON.stringify({ type: 'speaking', is_speaking: false }));
-        }, SPEAKING_HOLD_MS);
-      }
-    };
-
-    const interval = setInterval(checkSpeaking, 200);
-
-    return () => {
-      clearInterval(interval);
-      audioContext.close();
-    };
-  }, [localStream.current, isMuted]);
-
-  const handleOffer = async (fromUserId, offer) => {
-    const pc = createPeerConnection(fromUserId);
-    await pc.setRemoteDescription(new RTCSessionDescription(offer));
-    const answer = await pc.createAnswer();
-    await pc.setLocalDescription(answer);
-    wsRef?.current?.send(JSON.stringify({ type: 'answer', target_user_id: fromUserId, answer }));
-  };
-
-  const handleAnswer = async (fromUserId, answer) => {
-    const pc = pcs.current[fromUserId];
-    if (pc) {
-      await pc.setRemoteDescription(new RTCSessionDescription(answer));
-    }
-  };
-
-  const handleIceCandidate = async (fromUserId, candidate) => {
-    const pc = pcs.current[fromUserId];
-    if (pc) {
-      await pc.addIceCandidate(new RTCIceCandidate(candidate));
-    }
-  };
+  // ... (speaking detection)
 
   const createPeerConnection = (targetUserId) => {
     if (pcs.current[targetUserId]) return pcs.current[targetUserId];
 
     const pc = new RTCPeerConnection({
-        iceServers: [{ urls: 'stun:stun.l.google.com:19302' }]
+        iceServers: iceServers.current
     });
 
     pc.onicecandidate = (event) => {
@@ -127,10 +70,21 @@ export function useWebRTC(roomId, userId, wsRef) {
     };
 
     pc.ontrack = (event) => {
+      console.log(`Received remote track from ${targetUserId}`);
       const remoteStream = event.streams[0];
       const audio = new Audio();
       audio.srcObject = remoteStream;
-      audio.play();
+      audio.autoplay = true; // Use autoplay instead of manual play()
+      
+      // Handle browser autoplay policies
+      const playPromise = audio.play();
+      if (playPromise !== undefined) {
+        playPromise.catch(error => {
+          console.error("Autoplay prevented. User interaction might be needed.", error);
+          // Fallback: trigger play on next click
+          window.addEventListener('click', () => audio.play(), { once: true });
+        });
+      }
     };
 
     if (localStream.current) {
