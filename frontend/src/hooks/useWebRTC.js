@@ -5,17 +5,15 @@ export function useWebRTC(roomId, userId, wsRef) {
   const pcs = useRef({});
   const localStream = useRef(null);
   const iceServers = useRef([{ urls: 'stun:stun.l.google.com:19302' }]);
-  const { isMuted } = useRoomStore();
+  const { isMuted, isSpeakerOn } = useRoomStore();
   const [streamReady, setStreamReady] = useState(false);
 
   useEffect(() => {
     async function fetchIceConfig() {
         try {
-            // Use same-origin fallback for production
             let backendUrl = import.meta.env.PROD ? window.location.origin : (import.meta.env.VITE_BACKEND_URL || '');
             const cleanUrl = backendUrl ? backendUrl.replace(/\/$/, '') : '';
             
-            // Try fetching from /api/ice-config (standard) or /ice-config (root fallback)
             const response = await fetch(`${cleanUrl}/api/ice-config`).catch(() => fetch(`${cleanUrl}/ice-config`));
             const config = await response.json();
             if (config.iceServers) {
@@ -31,6 +29,7 @@ export function useWebRTC(roomId, userId, wsRef) {
 
     async function startLocalStream() {
       try {
+        console.log("[WebRTC] Requesting microphone access...");
         localStream.current = await navigator.mediaDevices.getUserMedia({
           audio: {
             echoCancellation: true,
@@ -60,6 +59,8 @@ export function useWebRTC(roomId, userId, wsRef) {
       }
       Object.values(pcs.current).forEach(pc => pc.close());
       pcs.current = {};
+      // Cleanup remote audio elements
+      document.querySelectorAll('audio[id^="audio-"]').forEach(el => el.remove());
     };
   }, []);
 
@@ -71,6 +72,13 @@ export function useWebRTC(roomId, userId, wsRef) {
       });
     }
   }, [isMuted]);
+
+  // Sync speaker state with remote audio elements
+  useEffect(() => {
+    document.querySelectorAll('audio[id^="audio-"]').forEach(audio => {
+        audio.muted = !isSpeakerOn;
+    });
+  }, [isSpeakerOn]);
 
   const createPeerConnection = useCallback((targetUserId) => {
     if (pcs.current[targetUserId]) return pcs.current[targetUserId];
@@ -92,26 +100,31 @@ export function useWebRTC(roomId, userId, wsRef) {
 
     pc.ontrack = (event) => {
       console.log(`[WebRTC] Received remote track from ${targetUserId}`);
-      const remoteStream = event.streams[0];
+      let remoteStream = event.streams[0];
       
-      // Use a persistent audio element to avoid garbage collection
+      if (!remoteStream) {
+          console.log(`[WebRTC] No stream found in ontrack, creating one for ${targetUserId}`);
+          remoteStream = new MediaStream([event.track]);
+      }
+      
       let audio = document.getElementById(`audio-${targetUserId}`);
       if (!audio) {
         audio = document.createElement('audio');
         audio.id = `audio-${targetUserId}`;
         audio.autoplay = true;
+        audio.style.display = 'none';
         document.body.appendChild(audio);
       }
       
       audio.srcObject = remoteStream;
+      audio.muted = !isSpeakerOn;
       
       const playPromise = audio.play();
       if (playPromise !== undefined) {
         playPromise.catch(error => {
           console.warn("[WebRTC] Autoplay blocked, waiting for user interaction.");
-          // Mobile browsers require a click to start audio
           const enableAudio = () => {
-             audio.play();
+             audio.play().catch(e => console.error("[WebRTC] Play failed after click:", e));
              window.removeEventListener('click', enableAudio);
           };
           window.addEventListener('click', enableAudio);
@@ -119,10 +132,20 @@ export function useWebRTC(roomId, userId, wsRef) {
       }
     };
 
+    pc.oniceconnectionstatechange = () => {
+        console.log(`[WebRTC] ICE state with ${targetUserId}: ${pc.iceConnectionState}`);
+        if (pc.iceConnectionState === 'failed') {
+            pc.restartIce();
+        }
+    };
+
     if (localStream.current) {
       localStream.current.getTracks().forEach(track => {
         pc.addTrack(track, localStream.current);
       });
+    } else {
+      console.warn(`[WebRTC] Adding empty audio transceiver for ${targetUserId} as localStream is not ready`);
+      pc.addTransceiver('audio', { direction: 'sendrecv' });
     }
 
     pcs.current[targetUserId] = pc;

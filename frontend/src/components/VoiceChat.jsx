@@ -60,6 +60,7 @@ export default function VoiceChat() {
           break;
         case 'user_joined':
           console.log("User joined, creating offer for", message.from_user_id);
+          // Wait slightly for the newcomer to be ready to receive
           setTimeout(async () => {
             const pc = createPeerConnection(message.from_user_id);
             const offer = await pc.createOffer();
@@ -69,7 +70,7 @@ export default function VoiceChat() {
               target_user_id: message.from_user_id,
               offer: offer
             }));
-          }, 1500);
+          }, 800);
           break;
       }
     } catch (e) {
@@ -77,7 +78,10 @@ export default function VoiceChat() {
     }
   }, [handleOffer, handleAnswer, handleIceCandidate, createPeerConnection]);
 
-  const { ws, connectionStatus } = useSignaling(activeRoomId, userId, user, onSignalingMessage);
+  // Only connect to signaling when joined, Telegram is ready, AND mic stream is ready.
+  // This ensures we always have tracks to send when the first offer/answer happens.
+  const signalingRoomId = (joined && isReady && streamReady) ? roomId : null;
+  const { ws, connectionStatus } = useSignaling(signalingRoomId, userId, user, onSignalingMessage);
   wsRef.current = ws;
 
   const onLeave = () => {
