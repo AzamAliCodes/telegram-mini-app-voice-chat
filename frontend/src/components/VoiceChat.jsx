@@ -93,16 +93,11 @@ export default function VoiceChat() {
       <div className="flex items-center justify-between mb-2 px-2">
         <div className="flex flex-col">
             <h1 className="text-xl font-bold tracking-tight">{roomName || 'Group Voice Chat'}</h1>
-            <span className="text-[10px] text-white/50">test version | Room: {roomId || 'None'} | {connectionStatus}</span>
+            <span className="text-[10px] text-white/50">{connectionStatus}</span>
         </div>
         <div className="bg-white/10 px-3 py-1 rounded-full text-xs text-white/70">
           {participants.length + 1} online
         </div>
-      </div>
-
-      {/* Debug Info - Temporary */}
-      <div className="bg-black/40 text-[8px] font-mono p-2 mb-4 rounded text-white/50 break-all">
-        Target: {import.meta.env.VITE_BACKEND_URL || 'NONE'} | User: {userId}
       </div>
 
       <div className="flex-1 bg-white/15 backdrop-blur-xl border border-white/20 rounded-[24px] p-5 mb-6 overflow-y-auto relative">

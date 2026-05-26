@@ -11,19 +11,19 @@ export function useWebRTC(roomId, userId, wsRef) {
   useEffect(() => {
     async function fetchIceConfig() {
         try {
+            // Use same-origin fallback for production
             let backendUrl = import.meta.env.PROD ? window.location.origin : (import.meta.env.VITE_BACKEND_URL || '');
-            if (import.meta.env.DEV && !backendUrl) {
-                console.warn("VITE_BACKEND_URL missing, skipping ICE config fetch");
-                return;
-            }
             const cleanUrl = backendUrl ? backendUrl.replace(/\/$/, '') : '';
-            const response = await fetch(`${cleanUrl}/api/ice-config`);
+            
+            // Try fetching from /api/ice-config (standard) or /ice-config (root fallback)
+            const response = await fetch(`${cleanUrl}/api/ice-config`).catch(() => fetch(`${cleanUrl}/ice-config`));
             const config = await response.json();
             if (config.iceServers) {
                 iceServers.current = config.iceServers;
+                console.log("[WebRTC] ICE Servers loaded.");
             }
         } catch (err) {
-            console.error("Error fetching ICE config:", err);
+            console.warn("[WebRTC] Using fallback STUN servers:", err);
         }
     }
     
@@ -32,18 +32,23 @@ export function useWebRTC(roomId, userId, wsRef) {
     async function startLocalStream() {
       try {
         localStream.current = await navigator.mediaDevices.getUserMedia({
-          audio: true,
+          audio: {
+            echoCancellation: true,
+            noiseSuppression: true,
+            autoGainControl: true
+          },
           video: false
         });
+        
         localStream.current.getAudioTracks().forEach(track => {
             track.enabled = !isMuted;
         });
-        console.log("Local audio stream initialized successfully.");
+        
+        console.log("[WebRTC] Local audio stream ready.");
         setStreamReady(true);
       } catch (err) {
-        console.error("Error accessing microphone:", err);
-        // We set it to true anyway so they can at least hear others if mic fails
-        setStreamReady(true); 
+        console.error("[WebRTC] Mic access denied:", err);
+        setStreamReady(true); // Allow hearing others even if mic fails
       }
     }
 
@@ -70,13 +75,14 @@ export function useWebRTC(roomId, userId, wsRef) {
   const createPeerConnection = useCallback((targetUserId) => {
     if (pcs.current[targetUserId]) return pcs.current[targetUserId];
 
+    console.log(`[WebRTC] Creating PC for ${targetUserId}`);
     const pc = new RTCPeerConnection({
         iceServers: iceServers.current
     });
 
     pc.onicecandidate = (event) => {
-      if (event.candidate) {
-        wsRef?.current?.send(JSON.stringify({
+      if (event.candidate && wsRef?.current) {
+        wsRef.current.send(JSON.stringify({
           type: 'ice_candidate',
           target_user_id: targetUserId,
           candidate: event.candidate
@@ -85,35 +91,46 @@ export function useWebRTC(roomId, userId, wsRef) {
     };
 
     pc.ontrack = (event) => {
-      console.log(`Received remote track from ${targetUserId}`);
+      console.log(`[WebRTC] Received remote track from ${targetUserId}`);
       const remoteStream = event.streams[0];
-      const audio = new Audio();
+      
+      // Use a persistent audio element to avoid garbage collection
+      let audio = document.getElementById(`audio-${targetUserId}`);
+      if (!audio) {
+        audio = document.createElement('audio');
+        audio.id = `audio-${targetUserId}`;
+        audio.autoplay = true;
+        document.body.appendChild(audio);
+      }
+      
       audio.srcObject = remoteStream;
-      audio.autoplay = true;
       
       const playPromise = audio.play();
       if (playPromise !== undefined) {
         playPromise.catch(error => {
-          console.error("Autoplay prevented:", error);
-          window.addEventListener('click', () => audio.play(), { once: true });
+          console.warn("[WebRTC] Autoplay blocked, waiting for user interaction.");
+          // Mobile browsers require a click to start audio
+          const enableAudio = () => {
+             audio.play();
+             window.removeEventListener('click', enableAudio);
+          };
+          window.addEventListener('click', enableAudio);
         });
       }
     };
 
     if (localStream.current) {
-      console.log(`Adding local tracks to peer connection for ${targetUserId}`);
       localStream.current.getTracks().forEach(track => {
         pc.addTrack(track, localStream.current);
       });
-    } else {
-      console.warn("No local stream available to add to peer connection");
     }
 
     pcs.current[targetUserId] = pc;
     return pc;
-  }, [wsRef, iceServers]);
+  }, [wsRef]);
 
   const handleOffer = useCallback(async (fromUserId, offer) => {
+    console.log(`[WebRTC] Handling offer from ${fromUserId}`);
     const pc = createPeerConnection(fromUserId);
     await pc.setRemoteDescription(new RTCSessionDescription(offer));
     const answer = await pc.createAnswer();
@@ -127,6 +144,7 @@ export function useWebRTC(roomId, userId, wsRef) {
   }, [createPeerConnection, wsRef]);
 
   const handleAnswer = useCallback(async (fromUserId, answer) => {
+    console.log(`[WebRTC] Handling answer from ${fromUserId}`);
     const pc = pcs.current[fromUserId];
     if (pc) {
       await pc.setRemoteDescription(new RTCSessionDescription(answer));
@@ -139,7 +157,7 @@ export function useWebRTC(roomId, userId, wsRef) {
       try {
         await pc.addIceCandidate(new RTCIceCandidate(candidate));
       } catch (err) {
-        console.error("Error adding ICE candidate:", err);
+        console.error("[WebRTC] Error adding ICE candidate:", err);
       }
     }
   }, []);

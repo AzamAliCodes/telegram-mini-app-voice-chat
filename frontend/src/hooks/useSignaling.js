@@ -39,6 +39,7 @@ export function useSignaling(roomId, userId, user, onMessage) {
         updateParticipant(message.from_user_id, { is_speaking: message.is_speaking });
         break;
       case 'mute':
+        console.log(`[Signal] Participant ${message.from_user_id} mute: ${message.is_muted}`);
         updateParticipant(message.from_user_id, { is_muted: message.is_muted });
         break;
       case 'chat_message':
@@ -60,12 +61,21 @@ export function useSignaling(roomId, userId, user, onMessage) {
         wsRef.current.send(JSON.stringify(msg));
       }
     } else {
-      const url = `${httpUrlRef.current}/api/signal/${roomId}/${userId}`;
-      fetch(url, {
+      // Use both /api and root paths for maximum compatibility
+      const url = `${httpUrlRef.current}/signal/${roomId}/${userId}`;
+      const fallbackUrl = `${httpUrlRef.current}/api/signal/${roomId}/${userId}`;
+      
+      fetch(fallbackUrl, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify(msg),
-      }).catch(err => console.error('[Signal] HTTP send failed:', err));
+      }).catch(() => {
+         fetch(url, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify(msg),
+         });
+      });
     }
   }
 
@@ -75,11 +85,12 @@ export function useSignaling(roomId, userId, user, onMessage) {
 
     function connectWs() {
       if (wsRef.current?.readyState === WebSocket.OPEN) return;
-      setConnectionStatus('WS Connecting...');
+      setConnectionStatus('Connecting...');
       transportRef.current = 'ws';
 
-      const wsEnv = import.meta.env.VITE_WS_URL || backendEnv.replace(/^https?:\/\//, '');
-      const wsUrl = `${wsEnv.startsWith('ws') ? '' : 'wss://'}${wsEnv.replace(/\/$/, '')}/api/ws/${roomId}/${userId}`;
+      // Try root /ws path
+      const wsHost = backendEnv.replace(/^https?:\/\//, '').replace(/\/$/, '');
+      const wsUrl = `wss://${wsHost}/ws/${roomId}/${userId}`;
 
       console.log(`[Signal] WS Connecting: ${wsUrl}`);
       let socket;
@@ -97,7 +108,6 @@ export function useSignaling(roomId, userId, user, onMessage) {
       socket.onopen = () => {
         if (!isMounted) return;
         clearTimeout(connectTimeoutRef.current);
-        setConnectionStatus('Authenticating...');
         socket.send(JSON.stringify({ type: 'auth', init_data: window.Telegram?.WebApp?.initData || '' }));
       };
 
@@ -105,12 +115,13 @@ export function useSignaling(roomId, userId, user, onMessage) {
         const msg = JSON.parse(e.data);
         if (msg.type === 'auth_ok') {
           wsFailCount.current = 0;
-          setConnectionStatus('Connected (WS)');
+          setConnectionStatus('Connected');
           socket.send(JSON.stringify({
             type: 'join',
             user_info: {
               first_name: user?.first_name || 'Anonymous',
-              photo_url: user?.photo_url || ''
+              photo_url: user?.photo_url || '',
+              is_muted: isMuted
             }
           }));
           pingInterval.current = setInterval(() => {
@@ -140,12 +151,11 @@ export function useSignaling(roomId, userId, user, onMessage) {
     }
 
     async function connectPolling() {
-      setConnectionStatus('Connecting (test version)...');
+      setConnectionStatus('Connecting...');
       transportRef.current = 'poll';
       
       const baseUrl = httpUrlRef.current;
-      // We add a cache buster ?v= to force mobile to bypass old caches
-      const connectUrl = `${baseUrl}/api/poll/${roomId}/${userId}/connect?cb=${Date.now()}`;
+      const connectUrl = `${baseUrl}/poll/${roomId}/${userId}/connect?cb=${Date.now()}`;
 
       try {
         const res = await fetch(connectUrl, {
@@ -153,7 +163,7 @@ export function useSignaling(roomId, userId, user, onMessage) {
           headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify({
             type: 'join',
-            user_info: { first_name: user?.first_name || 'Anonymous', photo_url: user?.photo_url || '' }
+            user_info: { first_name: user?.first_name || 'Anonymous', photo_url: user?.photo_url || '', is_muted: isMuted }
           }),
         });
 
@@ -161,12 +171,11 @@ export function useSignaling(roomId, userId, user, onMessage) {
         const data = await res.json();
         if (data.initial_state) setParticipants(data.initial_state);
 
-        setConnectionStatus('Connected (HTTP)');
+        setConnectionStatus('Connected');
         
-        // Polling loop
         pollIntervalRef.current = setInterval(async () => {
           try {
-            const pollRes = await fetch(`${baseUrl}/api/poll/${roomId}/${userId}?cb=${Date.now()}`);
+            const pollRes = await fetch(`${baseUrl}/poll/${roomId}/${userId}?cb=${Date.now()}`);
             if (pollRes.ok) {
               const pollData = await pollRes.json();
               pollData.messages?.forEach(handleIncomingMessage);
@@ -174,11 +183,17 @@ export function useSignaling(roomId, userId, user, onMessage) {
           } catch {}
         }, POLL_INTERVAL_MS);
 
-        wsRef.current = { send: (d) => sendMessage(JSON.parse(d)), close: () => clearInterval(pollIntervalRef.current), _isSSE: true };
-        setWs(wsRef.current);
+        const pollWsShim = { 
+            send: (d) => sendMessage(JSON.parse(d)), 
+            close: () => clearInterval(pollIntervalRef.current), 
+            readyState: WebSocket.OPEN,
+            _isSSE: true 
+        };
+        wsRef.current = pollWsShim;
+        setWs(pollWsShim);
 
       } catch (err) {
-        setConnectionStatus(`HTTP Error: ${err.message}`);
+        setConnectionStatus(`Error: ${err.message}`);
         reconnectTimeout.current = setTimeout(connectPolling, 5000);
       }
     }
@@ -195,8 +210,10 @@ export function useSignaling(roomId, userId, user, onMessage) {
     };
   }, [roomId, userId]);
 
+  // Sync mute state to server immediately
   useEffect(() => {
     if (ws && (ws.readyState === WebSocket.OPEN || ws._isSSE)) {
+      console.log(`[Signal] Sending mute state: ${isMuted}`);
       ws.send(JSON.stringify({ type: 'mute', is_muted: isMuted }));
     }
   }, [isMuted, ws]);

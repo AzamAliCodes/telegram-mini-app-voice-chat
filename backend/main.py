@@ -107,11 +107,21 @@ async def _handle_message(message: dict, room_id: str, user_id: str):
             await manager.send_to_user(room_id, target, message)
     elif m_type == "mute":
         is_m = message.get("is_muted", True)
+        logger.info(f"Mute Toggle: user={user_id} muted={is_m}")
         parts = await manager.get_participants(room_id)
         for p in parts:
             if p["user_id"] == user_id: p["is_muted"] = is_m
         await manager.set_participants(room_id, parts)
         await manager.broadcast_to_room(room_id, {"type": "mute", "from_user_id": user_id, "is_muted": is_m}, exclude_user=user_id)
+    elif m_type == "chat_message":
+        text = message.get("text", "")
+        if text:
+            await manager.broadcast_to_room(room_id, {
+                "type": "chat_message",
+                "from_user_id": user_id,
+                "text": text,
+                "sender_name": message.get("sender_name", "Unknown"),
+            })
 
 app.include_router(ice.router, prefix="/api")
 app.include_router(rooms.router, prefix="/api")
