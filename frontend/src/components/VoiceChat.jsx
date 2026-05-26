@@ -82,10 +82,9 @@ export default function VoiceChat() {
     }
   }, [handleOffer, handleAnswer, handleIceCandidate, createPeerConnection]);
 
-  // Only connect to signaling when joined, Telegram is ready, AND mic stream is ready.
-  // This ensures we always have tracks to send when the first offer/answer happens.
-  const signalingRoomId = (joined && isReady && streamReady) ? roomId : null;
-  const { ws, connectionStatus } = useSignaling(signalingRoomId, userId, user, (msg) => onSignalingMessage(msg, ws));
+  // Connect to signaling immediately once Telegram is ready to check room state (ended/not started)
+  const signalingRoomId = isReady ? roomId : null;
+  const { ws, connectionStatus } = useSignaling(signalingRoomId, userId, user, (msg) => onSignalingMessage(msg, ws), joined);
   wsRef.current = ws;
 
   const onLeave = () => {

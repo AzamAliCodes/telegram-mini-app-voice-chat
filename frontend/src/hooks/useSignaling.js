@@ -5,13 +5,14 @@ const CONNECTION_TIMEOUT_MS = 10000;
 const MAX_WS_FAILURES = 2;
 const POLL_INTERVAL_MS = 2000; 
 
-export function useSignaling(roomId, userId, user, onMessage) {
+export function useSignaling(roomId, userId, user, onMessage, shouldJoin = false) {
   const [ws, setWs] = useState(null);
   const [connectionStatus, setConnectionStatus] = useState('Connecting...');
   const { addParticipant, removeParticipant, setParticipants, addMessage, isMuted, isSpeakerOn } = useRoomStore();
   const wsRef = useRef(null);
   const onMessageRef = useRef(onMessage);
   const transportRef = useRef('ws');
+  const hasJoinedRef = useRef(false);
   const reconnectTimeout = useRef(null);
   const pingInterval = useRef(null);
   const connectTimeoutRef = useRef(null);
@@ -25,6 +26,22 @@ export function useSignaling(roomId, userId, user, onMessage) {
   useEffect(() => {
     onMessageRef.current = onMessage;
   }, [onMessage]);
+
+  // Handle the 'join' signal when the UI says we are ready to join
+  useEffect(() => {
+    if (shouldJoin && !hasJoinedRef.current && wsRef.current) {
+        console.log("[Signal] Triggering delayed join...");
+        sendMessage({
+            type: 'join',
+            user_info: {
+              first_name: user?.first_name || 'Anonymous',
+              photo_url: user?.photo_url || '',
+              is_muted: isMuted
+            }
+        });
+        hasJoinedRef.current = true;
+    }
+  }, [shouldJoin, ws]);
 
   // ── Shared message handler ─────────────────────────────────────────
   function handleIncomingMessage(message) {
@@ -98,6 +115,7 @@ export function useSignaling(roomId, userId, user, onMessage) {
   useEffect(() => {
     if (!roomId || !userId) return;
     let isMounted = true;
+    hasJoinedRef.current = false; // Reset on room change
 
     function connectWs() {
       if (wsRef.current?.readyState === WebSocket.OPEN) return;
@@ -131,14 +149,20 @@ export function useSignaling(roomId, userId, user, onMessage) {
         if (msg.type === 'auth_ok') {
           wsFailCount.current = 0;
           setConnectionStatus('Connected');
-          socket.send(JSON.stringify({
-            type: 'join',
-            user_info: {
-              first_name: user?.first_name || 'Anonymous',
-              photo_url: user?.photo_url || '',
-              is_muted: isMuted
-            }
-          }));
+          
+          // Only join if UI already says we are joined
+          if (shouldJoin) {
+            socket.send(JSON.stringify({
+                type: 'join',
+                user_info: {
+                  first_name: user?.first_name || 'Anonymous',
+                  photo_url: user?.photo_url || '',
+                  is_muted: isMuted
+                }
+            }));
+            hasJoinedRef.current = true;
+          }
+
           pingInterval.current = setInterval(() => {
             if (socket.readyState === WebSocket.OPEN) socket.send(JSON.stringify({ type: 'ping' }));
           }, 25000);
@@ -177,7 +201,7 @@ export function useSignaling(roomId, userId, user, onMessage) {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify({
-            type: 'join',
+            type: shouldJoin ? 'join' : 'ping', // Minimal message if not joining
             user_info: { first_name: user?.first_name || 'Anonymous', photo_url: user?.photo_url || '', is_muted: isMuted }
           }),
         });
@@ -197,7 +221,10 @@ export function useSignaling(roomId, userId, user, onMessage) {
             return;
         }
 
-        if (data.initial_state) setParticipants(data.initial_state);
+        if (shouldJoin && data.initial_state) {
+            setParticipants(data.initial_state);
+            hasJoinedRef.current = true;
+        }
 
         setConnectionStatus('Connected');
         
@@ -238,21 +265,21 @@ export function useSignaling(roomId, userId, user, onMessage) {
     };
   }, [roomId, userId]);
 
-  // Sync mute state to server immediately
+  // Sync mute state to server (only if joined)
   useEffect(() => {
-    if (ws && (ws.readyState === WebSocket.OPEN || ws._isSSE)) {
+    if (shouldJoin && ws && (ws.readyState === WebSocket.OPEN || ws._isSSE)) {
       console.log(`[Signal] Sending mute state: ${isMuted}`);
       ws.send(JSON.stringify({ type: 'mute', is_muted: isMuted }));
     }
-  }, [isMuted, ws]);
+  }, [isMuted, ws, shouldJoin]);
 
-  // Sync speaker state to server
+  // Sync speaker state to server (only if joined)
   useEffect(() => {
-    if (ws && (ws.readyState === WebSocket.OPEN || ws._isSSE)) {
+    if (shouldJoin && ws && (ws.readyState === WebSocket.OPEN || ws._isSSE)) {
       console.log(`[Signal] Sending speaker state: ${isSpeakerOn}`);
       ws.send(JSON.stringify({ type: 'speaker', is_speaker_on: isSpeakerOn }));
     }
-  }, [isSpeakerOn, ws]);
+  }, [isSpeakerOn, ws, shouldJoin]);
 
   return { ws, connectionStatus };
 }
