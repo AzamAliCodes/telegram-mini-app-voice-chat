@@ -11,8 +11,12 @@ export function useWebRTC(roomId, userId, wsRef) {
   useEffect(() => {
     async function fetchIceConfig() {
         try {
-            const backendUrl = import.meta.env.VITE_BACKEND_URL || 'http://localhost:8000';
-            const cleanUrl = backendUrl.replace(/\/$/, '');
+            let backendUrl = import.meta.env.PROD ? window.location.origin : (import.meta.env.VITE_BACKEND_URL || '');
+            if (import.meta.env.DEV && !backendUrl) {
+                console.warn("VITE_BACKEND_URL missing, skipping ICE config fetch");
+                return;
+            }
+            const cleanUrl = backendUrl ? backendUrl.replace(/\/$/, '') : '';
             const response = await fetch(`${cleanUrl}/api/ice-config`);
             const config = await response.json();
             if (config.iceServers) {

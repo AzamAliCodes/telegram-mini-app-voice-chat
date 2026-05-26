@@ -44,7 +44,7 @@ async def vc_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
     
     # startapp param passes the room_id (group chat ID) to the Mini App
     # The Mini App reads it via Telegram.WebApp.initDataUnsafe.start_param
-    miniapp_link = f"https://t.me/{bot_username}?startapp={room_id}"
+    miniapp_link = f"https://t.me/{bot_username}/app?startapp={room_id}"
 
     keyboard = InlineKeyboardMarkup([[
         InlineKeyboardButton(
@@ -73,7 +73,7 @@ async def show_join_button(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
     room_id = group["active_session"]["room_id"]
     bot_username = os.getenv("TELEGRAM_BOT_USERNAME", "tgvcgroup_bot")
-    miniapp_link = f"https://t.me/{bot_username}?startapp={room_id}"
+    miniapp_link = f"https://t.me/{bot_username}/app?startapp={room_id}"
 
     keyboard = InlineKeyboardMarkup([[
         InlineKeyboardButton(
@@ -94,9 +94,19 @@ async def end_vc(update: Update, context: ContextTypes.DEFAULT_TYPE):
         await update.message.reply_text("Only admins can end the voice chat.")
         return
 
+    room_id = str(abs(int(chat_id)))
+
     await groups_collection.update_one(
         {"_id": chat_id},
         {"$unset": {"active_session": ""}}
     )
+
+    # Notify backend to forcefully clear Redis and close WebSockets
+    backend_url = os.getenv("BACKEND_URL", "http://localhost:8000").rstrip("/")
+    try:
+        async with httpx.AsyncClient() as client:
+            await client.delete(f"{backend_url}/api/room/{room_id}", timeout=5.0)
+    except Exception as e:
+        logger.error(f"Failed to clear room on backend: {e}")
 
     await update.message.reply_text("🔴 Voice Chat ended.")

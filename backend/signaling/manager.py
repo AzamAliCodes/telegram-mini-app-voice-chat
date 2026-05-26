@@ -1,20 +1,25 @@
 from fastapi import WebSocket
-from typing import Dict, List
+from typing import Dict, List, Optional
+import asyncio
 import json
 from loguru import logger
 
 from ..core.redis import redis_client
 
+
 class ConnectionManager:
     def __init__(self):
-        # Memory handles for active WebSockets: {room_id: {user_id: WebSocket}}
+        # WebSocket handles: {room_id: {user_id: WebSocket}}
         self.active_connections: Dict[str, Dict[str, WebSocket]] = {}
+        # SSE handles: {room_id: {user_id: asyncio.Queue}}
+        self.sse_clients: Dict[str, Dict[str, asyncio.Queue]] = {}
+
+    # ── WebSocket connections ──────────────────────────────────────
 
     async def connect(self, websocket: WebSocket, room_id: str, user_id: str):
         await websocket.accept()
         if room_id not in self.active_connections:
             self.active_connections[room_id] = {}
-        
         s_user_id = str(user_id)
         self.active_connections[room_id][s_user_id] = websocket
         logger.info(f"WebSocket established: room={room_id}, user={s_user_id}")
@@ -26,17 +31,56 @@ class ConnectionManager:
                 del self.active_connections[room_id][s_user_id]
                 logger.info(f"WebSocket closed: user={s_user_id}")
 
-            # Only remove from Redis list if they are truly gone
-            # We don't wipe the whole room state here to avoid race conditions
-            participants = await self.get_participants(room_id)
-            participants = [p for p in participants if str(p.get("user_id")) != s_user_id]
-            await self.set_participants(room_id, participants)
-            
-            if not self.active_connections[room_id]:
+        # Also clean up SSE client if present
+        if room_id in self.sse_clients:
+            if s_user_id in self.sse_clients[room_id]:
+                del self.sse_clients[room_id][s_user_id]
+                logger.info(f"SSE client removed: user={s_user_id}")
+
+        # Remove from Redis participant list
+        participants = await self.get_participants(room_id)
+        participants = [p for p in participants if str(p.get("user_id")) != s_user_id]
+        await self.set_participants(room_id, participants)
+
+        # Check if room is now empty (both WS and SSE)
+        ws_empty = room_id not in self.active_connections or not self.active_connections[room_id]
+        sse_empty = room_id not in self.sse_clients or not self.sse_clients[room_id]
+        if ws_empty and sse_empty:
+            if room_id in self.active_connections:
                 del self.active_connections[room_id]
-                # Optional: expire room after 1 hour of zero activity
-                await redis_client.expire(f"room:{room_id}:participants", 3600)
-                logger.info(f"Room {room_id} is now empty.")
+            if room_id in self.sse_clients:
+                del self.sse_clients[room_id]
+            await redis_client.expire(f"room:{room_id}:participants", 3600)
+            logger.info(f"Room {room_id} is now empty.")
+
+    # ── SSE connections ───────────────────────────────────────────
+
+    def register_sse_client(self, room_id: str, user_id: str) -> asyncio.Queue:
+        """Register an SSE client and return its message queue."""
+        s_user_id = str(user_id)
+        if room_id not in self.sse_clients:
+            self.sse_clients[room_id] = {}
+        queue = asyncio.Queue(maxsize=100)
+        self.sse_clients[room_id][s_user_id] = queue
+        logger.info(f"SSE client registered: room={room_id}, user={s_user_id}")
+        return queue
+
+    def unregister_sse_client(self, room_id: str, user_id: str):
+        """Remove an SSE client."""
+        s_user_id = str(user_id)
+        if room_id in self.sse_clients:
+            if s_user_id in self.sse_clients[room_id]:
+                del self.sse_clients[room_id][s_user_id]
+                logger.info(f"SSE client unregistered: room={room_id}, user={s_user_id}")
+
+    def is_connected(self, room_id: str, user_id: str) -> bool:
+        """Check if a user is connected via either WS or SSE."""
+        s = str(user_id)
+        ws_ok = room_id in self.active_connections and s in self.active_connections[room_id]
+        sse_ok = room_id in self.sse_clients and s in self.sse_clients[room_id]
+        return ws_ok or sse_ok
+
+    # ── Participant state (Redis) ─────────────────────────────────
 
     async def get_participants(self, room_id: str) -> List[dict]:
         try:
@@ -55,10 +99,7 @@ class ConnectionManager:
     async def add_participant(self, room_id: str, user_id: str, user_info: dict):
         s_user_id = str(user_id)
         participants = await self.get_participants(room_id)
-        
-        # Remove any existing entry for this user to prevent duplicates
         participants = [p for p in participants if str(p.get("user_id")) != s_user_id]
-        
         new_participant = {
             "user_id": s_user_id,
             "first_name": user_info.get("first_name", "Anonymous"),
@@ -67,28 +108,91 @@ class ConnectionManager:
             "is_speaking": False
         }
         participants.append(new_participant)
-        
         await self.set_participants(room_id, participants)
         logger.info(f"User {s_user_id} added to room {room_id}. Total: {len(participants)}")
         return participants
 
-    async def broadcast_to_room(self, room_id: str, message: dict, exclude_user: str = None):
+    # ── Message delivery (unified WS + SSE) ───────────────────────
+
+    async def _send_to_ws(self, user_id: str, room_id: str, message: dict) -> bool:
+        """Try to send via WebSocket. Returns True if sent."""
         if room_id in self.active_connections:
-            s_exclude = str(exclude_user) if exclude_user else None
+            ws = self.active_connections[room_id].get(str(user_id))
+            if ws:
+                try:
+                    await ws.send_text(json.dumps(message))
+                    return True
+                except Exception as e:
+                    logger.error(f"WS send failed to {user_id}: {e}")
+        return False
+
+    async def _send_to_sse(self, user_id: str, room_id: str, message: dict) -> bool:
+        """Try to enqueue for SSE. Returns True if enqueued."""
+        if room_id in self.sse_clients:
+            queue = self.sse_clients[room_id].get(str(user_id))
+            if queue:
+                try:
+                    queue.put_nowait(message)
+                    return True
+                except asyncio.QueueFull:
+                    logger.warning(f"SSE queue full for {user_id}, dropping message")
+        return False
+
+    async def send_to_user(self, room_id: str, target_user_id: str, message: dict):
+        """Send a message to a specific user via whatever transport they use."""
+        sent = await self._send_to_ws(target_user_id, room_id, message)
+        if not sent:
+            await self._send_to_sse(target_user_id, room_id, message)
+
+    async def broadcast_to_room(self, room_id: str, message: dict, exclude_user: str = None):
+        """Broadcast to all users in a room via their respective transports."""
+        s_exclude = str(exclude_user) if exclude_user else None
+
+        # WebSocket clients
+        if room_id in self.active_connections:
             targets = list(self.active_connections[room_id].items())
             for target_id, websocket in targets:
                 if target_id != s_exclude:
                     try:
                         await websocket.send_text(json.dumps(message))
                     except Exception as e:
-                        logger.error(f"Broadcast failed to {target_id}: {e}")
+                        logger.error(f"Broadcast WS failed to {target_id}: {e}")
 
-    async def send_to_user(self, room_id: str, target_user_id: str, message: dict):
-        s_target = str(target_user_id)
-        if room_id in self.active_connections and s_target in self.active_connections[room_id]:
-            try:
-                await self.active_connections[room_id][s_target].send_text(json.dumps(message))
-            except Exception as e:
-                logger.error(f"Direct send failed to {s_target}: {e}")
+        # SSE clients
+        if room_id in self.sse_clients:
+            targets = list(self.sse_clients[room_id].items())
+            for target_id, queue in targets:
+                if target_id != s_exclude:
+                    try:
+                        queue.put_nowait(message)
+                    except asyncio.QueueFull:
+                        logger.warning(f"Broadcast SSE queue full for {target_id}")
+
+    async def end_room(self, room_id: str):
+        message = {"type": "room_ended"}
+
+        # Close WebSocket clients
+        if room_id in self.active_connections:
+            for websocket in self.active_connections[room_id].values():
+                try:
+                    await websocket.send_text(json.dumps(message))
+                    await websocket.close(code=1000)
+                except Exception:
+                    pass
+            del self.active_connections[room_id]
+
+        # Notify SSE clients
+        if room_id in self.sse_clients:
+            for queue in self.sse_clients[room_id].values():
+                try:
+                    queue.put_nowait(message)
+                except asyncio.QueueFull:
+                    pass
+            del self.sse_clients[room_id]
+
+        await redis_client.delete(f"room:{room_id}:participants")
+        await redis_client.delete(f"room:{room_id}:state")
+        logger.info(f"Room {room_id} forcefully ended and Redis state cleared.")
+
 
 manager = ConnectionManager()

@@ -9,36 +9,37 @@ import RoomJoin from './RoomJoin';
 import ChatPanel from './ChatPanel';
 
 export default function VoiceChat() {
-  const { tg, user, enableClosingConfirmation } = useTelegram();
+  const { tg, user, isReady, enableClosingConfirmation } = useTelegram();
   const { participants, roomName, showChat, toggleChat } = useRoomStore();
   const [roomId, setRoomId] = useState(null);
   const [joined, setJoined] = useState(false);
   const wsRef = useRef(null);
 
   useEffect(() => {
-    // Room ID = group chat ID, passed via startapp parameter
-    // When opened via t.me/bot?startapp=<group_chat_id>, Telegram passes it
-    // through WebApp.initDataUnsafe.start_param
-    const startParam = tg?.initDataUnsafe?.start_param;
+    let id = tg?.initDataUnsafe?.start_param;
     
-    // Fallback: also check URL query params and hash for compatibility
-    const params = new URLSearchParams(window.location.search);
-    const queryRoom = params.get('room');
-    const hashParams = new URLSearchParams(window.location.hash.replace('#', '?'));
-    const hashRoom = hashParams.get('tgWebAppStartParam');
+    if (!id) {
+        const rawUrl = window.location.href;
+        if (rawUrl.includes('tgWebAppStartParam=')) {
+            id = rawUrl.split('tgWebAppStartParam=')[1].split('&')[0].split('#')[0];
+        } else if (rawUrl.includes('room=')) {
+            id = rawUrl.split('room=')[1].split('&')[0].split('#')[0];
+        }
+    }
     
-    const id = startParam || queryRoom || hashRoom;
-    setRoomId(id);
-    
-    tg?.ready();
-    tg?.expand();
+    setRoomId(id || 'default_room');
+    // tg.ready() and tg.expand() are now handled by useTelegram hook
     enableClosingConfirmation();
   }, [tg]);
 
-  // User ID is the Telegram user ID (as string)
-  const userId = user?.id?.toString();
+  const [fallbackId] = useState(`anon_${Math.floor(Math.random() * 1000000)}`);
+  const userId = user?.id?.toString() || fallbackId;
 
-  const { handleOffer, handleAnswer, handleIceCandidate, createPeerConnection, streamReady } = useWebRTC(roomId, userId, wsRef);
+  // Only pass roomId to hooks if 'joined' AND Telegram SDK is ready,
+  // preventing WebSocket connections before the mobile native bridge is up.
+  const activeRoomId = (joined && isReady) ? roomId : null;
+
+  const { handleOffer, handleAnswer, handleIceCandidate, createPeerConnection, streamReady } = useWebRTC(activeRoomId, userId, wsRef);
 
   const onSignalingMessage = useCallback(async (message) => {
     const ws = wsRef.current;
@@ -59,7 +60,6 @@ export default function VoiceChat() {
           break;
         case 'user_joined':
           console.log("User joined, creating offer for", message.from_user_id);
-          // Wait for the new user to initialize their audio and websocket
           setTimeout(async () => {
             const pc = createPeerConnection(message.from_user_id);
             const offer = await pc.createOffer();
@@ -77,8 +77,7 @@ export default function VoiceChat() {
     }
   }, [handleOffer, handleAnswer, handleIceCandidate, createPeerConnection]);
 
-  // Only connect to WebSocket AFTER the microphone is ready
-  const ws = useSignaling(streamReady ? roomId : null, userId, user, onSignalingMessage);
+  const { ws, connectionStatus } = useSignaling(activeRoomId, userId, user, onSignalingMessage);
   wsRef.current = ws;
 
   const onLeave = () => {
@@ -91,14 +90,19 @@ export default function VoiceChat() {
 
   return (
     <div className="flex flex-col h-screen bg-gradient-to-br from-[#5B6BC0] via-[#4A3080] to-[#8B5A7A] p-4 font-sans text-white overflow-hidden">
-      <div className="flex items-center justify-between mb-4 px-2">
+      <div className="flex items-center justify-between mb-2 px-2">
         <div className="flex flex-col">
             <h1 className="text-xl font-bold tracking-tight">{roomName || 'Group Voice Chat'}</h1>
-            <span className="text-[10px] text-white/50">Room: {roomId || 'None'}</span>
+            <span className="text-[10px] text-white/50">test version 2 | Room: {roomId || 'None'} | {connectionStatus}</span>
         </div>
         <div className="bg-white/10 px-3 py-1 rounded-full text-xs text-white/70">
           {participants.length + 1} online
         </div>
+      </div>
+
+      {/* Debug Info - Temporary */}
+      <div className="bg-black/40 text-[8px] font-mono p-2 mb-4 rounded text-white/50 break-all">
+        Debug | User: {userId} | Transport: {ws?._isSSE ? 'POLL' : 'WS'} | Target: {import.meta.env.VITE_BACKEND_URL || 'LOCALHOST'}
       </div>
 
       <div className="flex-1 bg-white/15 backdrop-blur-xl border border-white/20 rounded-[24px] p-5 mb-6 overflow-y-auto relative">

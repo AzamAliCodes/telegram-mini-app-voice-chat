@@ -182,6 +182,34 @@ Restart your server, and the bot will connect successfully!
 
 ---
 
+## 🔍 Inspecting & Debugging (TMA)
+
+Telegram Mini Apps can be difficult to debug on mobile. Use these methods to access the console and network logs:
+
+### 1. Telegram Desktop (easiest)
+- Go to **Settings** > **Advanced** > **Experimental settings**.
+- Enable **WebView inspection**.
+- Open the Mini App, right-click, and select **Inspect**.
+
+### 2. Android (Chrome Remote Debugging)
+- Enable **USB Debugging** in your phone's Developer Options.
+- In Telegram: **Settings** > scroll to bottom > **Long-press** version twice > **Enable WebView Debug**.
+- Connect phone to PC, open Chrome, and go to `chrome://inspect/#devices`.
+
+### 3. iOS (Safari Web Inspector)
+- Enable **Web Inspector**: iPhone Settings > **Safari** > **Advanced**.
+- In Telegram: Tap **Settings** 10 times > Enable **Allow Web View Inspection**.
+- Connect to a Mac and use **Safari** > **Develop** menu.
+
+### 4. On-Device Console (Eruda)
+For a built-in console on your phone, add this to your `index.html` during development:
+```html
+<script src="//cdn.jsdelivr.net/npm/eruda"></script>
+<script>eruda.init();</script>
+```
+
+---
+
 ### Shared Environment Variables (.env — root reference)
 
 | Variable | Description | Source |

@@ -9,9 +9,13 @@ export const useRoomStore = create((set) => ({
   showChat: false,
 
   setParticipants: (participants) => set({ participants }),
-  addParticipant: (participant) => set((state) => ({
-    participants: [...state.participants, participant]
-  })),
+  addParticipant: (participant) => set((state) => {
+    // Prevent duplicates based on user_id
+    if (state.participants.some(p => p.user_id === participant.user_id)) {
+      return state;
+    }
+    return { participants: [...state.participants, participant] };
+  }),
   updateParticipant: (userId, updates) => set((state) => ({
     participants: state.participants.map(p => 
       p.user_id === userId ? { ...p, ...updates } : p

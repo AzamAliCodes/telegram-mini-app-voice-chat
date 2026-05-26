@@ -1,5 +1,6 @@
 from fastapi import APIRouter
 from ..core.redis import redis_client
+from ..signaling.manager import manager
 import json
 
 router = APIRouter()
@@ -16,3 +17,8 @@ async def get_participants(room_id: str):
 async def notify_participants(room_id: str):
     # Placeholder for notifying participants via bot
     return {"status": "notified"}
+
+@router.delete("/room/{room_id}")
+async def end_room(room_id: str):
+    await manager.end_room(room_id)
+    return {"status": "success", "message": f"Room {room_id} ended"}
