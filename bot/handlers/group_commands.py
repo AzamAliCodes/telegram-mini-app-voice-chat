@@ -9,6 +9,9 @@ import httpx
 from loguru import logger
 import asyncio
 
+# Local cache to skip DB lookups for instant UI cleanup
+msg_id_cache = {}
+
 async def vc_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
     chat_id = str(update.effective_chat.id)
     user_id = update.effective_user.id
@@ -36,6 +39,7 @@ async def vc_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
                 reply_markup=keyboard,
                 parse_mode="Markdown"
             )
+            msg_id_cache[chat_id] = sent_msg.message_id
             await context.bot.pin_chat_message(chat_id=chat_id, message_id=sent_msg.message_id, disable_notification=True)
             
             # 2. BACKGROUND VALIDATION
@@ -104,22 +108,26 @@ async def end_vc(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
     async def run_vc_end_flow():
         try:
-            # 1. DB LOOKUP (The only blocker for UI cleanup)
-            group = await groups_collection.find_one({"_id": chat_id})
-            msg_id = group.get("active_session", {}).get("msg_id") if group else None
-
-            # 2. INSTANT UI CLEANUP (Parallel)
-            tasks = [context.bot.send_message(chat_id=chat_id, text="🔴 Voice Chat ended.")]
-            if msg_id:
-                tasks.append(context.bot.unpin_chat_message(chat_id=chat_id, message_id=msg_id))
-                tasks.append(context.bot.delete_message(chat_id=chat_id, message_id=msg_id))
+            # 1. INSTANT CACHE LOOKUP (Zero bottleneck)
+            msg_id = msg_id_cache.pop(chat_id, None)
             
-            results = await asyncio.gather(*tasks, return_exceptions=True)
-            status_msg = results[0] if not isinstance(results[0], Exception) else None
+            if not msg_id:
+                # Fallback to DB if cache missed
+                group = await groups_collection.find_one({"_id": chat_id})
+                msg_id = group.get("active_session", {}).get("msg_id") if group else None
 
-            # 3. BACKGROUND VALIDATION & CLEANUP
+            # 2. DELETE JOIN MSG INSTANTLY (Fire and forget)
+            if msg_id:
+                asyncio.create_task(context.bot.unpin_chat_message(chat_id=chat_id, message_id=msg_id))
+                asyncio.create_task(context.bot.delete_message(chat_id=chat_id, message_id=msg_id))
+            
+            # 3. STATUS FEEDBACK
+            status_msg = await context.bot.send_message(chat_id=chat_id, text="🔴 Voice Chat ended.")
+
+            # 4. BACKGROUND VALIDATION & CLEANUP
             if not await is_admin_silent(chat_id, user_id, context):
-                if status_msg: await status_msg.edit_text("❌ Only admins can end the voice chat.")
+                try: await status_msg.edit_text("❌ Only admins can end the voice chat.")
+                except: pass
                 return
 
             room_id = str(abs(int(chat_id)))
