@@ -10,6 +10,7 @@ export function useSignaling(roomId, userId, user, onMessage) {
   const [connectionStatus, setConnectionStatus] = useState('Connecting...');
   const { addParticipant, removeParticipant, setParticipants, addMessage, isMuted, isSpeakerOn } = useRoomStore();
   const wsRef = useRef(null);
+  const onMessageRef = useRef(onMessage);
   const transportRef = useRef('ws');
   const reconnectTimeout = useRef(null);
   const pingInterval = useRef(null);
@@ -19,6 +20,11 @@ export function useSignaling(roomId, userId, user, onMessage) {
   
   const backendEnv = import.meta.env.VITE_BACKEND_URL || 'https://asdvffegrhgfh-vcbot-backend.hf.space';
   const httpUrlRef = useRef(backendEnv.replace(/\/$/, ''));
+
+  // Keep onMessageRef up to date to avoid stale closures in effects
+  useEffect(() => {
+    onMessageRef.current = onMessage;
+  }, [onMessage]);
 
   // ── Shared message handler ─────────────────────────────────────────
   function handleIncomingMessage(message) {
@@ -54,7 +60,7 @@ export function useSignaling(roomId, userId, user, onMessage) {
         });
         break;
     }
-    if (onMessage) onMessage(message);
+    if (onMessageRef.current) onMessageRef.current(message);
   }
 
   // ── Send helper ────────────────────────────────────────────────────

@@ -39,31 +39,33 @@ export default function VoiceChat() {
   // preventing WebSocket connections before the mobile native bridge is up.
   const activeRoomId = (joined && isReady) ? roomId : null;
 
-  const { handleOffer, handleAnswer, handleIceCandidate, createPeerConnection, streamReady } = useWebRTC(activeRoomId, userId, wsRef);
+  const { handleOffer, handleAnswer, handleIceCandidate, handleUserLeft, createPeerConnection, streamReady } = useWebRTC(activeRoomId, userId, wsRef);
 
-  const onSignalingMessage = useCallback(async (message) => {
-    const ws = wsRef.current;
+  const onSignalingMessage = useCallback(async (message, ws) => {
     if (!ws) return;
 
     try {
       switch (message.type) {
         case 'offer':
-          console.log("Received offer from", message.from_user_id);
+          console.log("[VoiceChat] Received offer from", message.from_user_id);
           await handleOffer(message.from_user_id, message.offer);
           break;
         case 'answer':
-          console.log("Received answer from", message.from_user_id);
+          console.log("[VoiceChat] Received answer from", message.from_user_id);
           await handleAnswer(message.from_user_id, message.answer);
           break;
         case 'ice_candidate':
           await handleIceCandidate(message.from_user_id, message.candidate);
           break;
+        case 'user_left':
+          handleUserLeft(message.from_user_id);
+          break;
         case 'user_joined':
-          console.log("User joined, creating offer for", message.from_user_id);
+          console.log("[VoiceChat] User joined, creating offer for", message.from_user_id);
           // Wait slightly for the newcomer to be ready to receive
           setTimeout(async () => {
             const pc = createPeerConnection(message.from_user_id);
-            const offer = await pc.createOffer();
+            const offer = await pc.createOffer({ offerToReceiveAudio: true });
             await pc.setLocalDescription(offer);
             ws.send(JSON.stringify({
               type: 'offer',
@@ -81,7 +83,7 @@ export default function VoiceChat() {
   // Only connect to signaling when joined, Telegram is ready, AND mic stream is ready.
   // This ensures we always have tracks to send when the first offer/answer happens.
   const signalingRoomId = (joined && isReady && streamReady) ? roomId : null;
-  const { ws, connectionStatus } = useSignaling(signalingRoomId, userId, user, onSignalingMessage);
+  const { ws, connectionStatus } = useSignaling(signalingRoomId, userId, user, (msg) => onSignalingMessage(msg, ws));
   wsRef.current = ws;
 
   const onLeave = () => {

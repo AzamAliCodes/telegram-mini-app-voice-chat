@@ -150,13 +150,13 @@ export function useWebRTC(roomId, userId, wsRef) {
 
     pcs.current[targetUserId] = pc;
     return pc;
-  }, [wsRef]);
+  }, [wsRef, isSpeakerOn]);
 
   const handleOffer = useCallback(async (fromUserId, offer) => {
     console.log(`[WebRTC] Handling offer from ${fromUserId}`);
     const pc = createPeerConnection(fromUserId);
     await pc.setRemoteDescription(new RTCSessionDescription(offer));
-    const answer = await pc.createAnswer();
+    const answer = await pc.createAnswer({ offerToReceiveAudio: true });
     await pc.setLocalDescription(answer);
     
     wsRef?.current?.send(JSON.stringify({
@@ -185,5 +185,15 @@ export function useWebRTC(roomId, userId, wsRef) {
     }
   }, []);
 
-  return { handleOffer, handleAnswer, handleIceCandidate, createPeerConnection, streamReady };
+  const handleUserLeft = useCallback((targetUserId) => {
+    console.log(`[WebRTC] Cleaning up for user ${targetUserId}`);
+    if (pcs.current[targetUserId]) {
+      pcs.current[targetUserId].close();
+      delete pcs.current[targetUserId];
+    }
+    const audio = document.getElementById(`audio-${targetUserId}`);
+    if (audio) audio.remove();
+  }, []);
+
+  return { handleOffer, handleAnswer, handleIceCandidate, handleUserLeft, createPeerConnection, streamReady };
 }
