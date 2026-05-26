@@ -11,6 +11,12 @@ from loguru import logger
 async def vc_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
     chat_id = str(update.effective_chat.id)
 
+    # Delete the user's command message
+    try:
+        await update.message.delete()
+    except Exception:
+        pass
+
     if not await check_bot_admin(update, context):
         return
 
@@ -19,7 +25,7 @@ async def vc_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
         return
 
     if not await is_admin(update, context):
-        await update.message.reply_text("Only admins can start a voice chat.")
+        await context.bot.send_message(chat_id=chat_id, text="Only admins can start a voice chat.")
         return
 
     # Room ID is simply the group chat ID (absolute value)
@@ -63,11 +69,22 @@ async def vc_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
         )
     ]])
 
-    await update.message.reply_text(
-        f"🎙️ *Voice Chat Started!*\n\nClick the button below to join.",
+    sent_msg = await context.bot.send_message(
+        chat_id=chat_id,
+        text=f"🎙️ *Voice Chat Started!*\n\nClick the button below to join.",
         reply_markup=keyboard,
         parse_mode="Markdown"
     )
+
+    # Pin the message and store its ID for later deletion
+    try:
+        await context.bot.pin_chat_message(chat_id=chat_id, message_id=sent_msg.message_id, disable_notification=True)
+        await groups_collection.update_one(
+            {"_id": chat_id},
+            {"$set": {"active_session.msg_id": sent_msg.message_id}}
+        )
+    except Exception as e:
+        logger.warning(f"Failed to pin message: {e}")
 
 async def show_join_button(update: Update, context: ContextTypes.DEFAULT_TYPE):
     chat_id = str(update.effective_chat.id)
@@ -92,24 +109,42 @@ async def show_join_button(update: Update, context: ContextTypes.DEFAULT_TYPE):
         )
     ]])
 
-    await update.message.reply_text("An active voice chat is running!", reply_markup=keyboard)
+    await context.bot.send_message(chat_id=chat_id, text="An active voice chat is running!", reply_markup=keyboard)
 
 async def end_vc(update: Update, context: ContextTypes.DEFAULT_TYPE):
     chat_id = str(update.effective_chat.id)
+
+    # Delete the user's command message
+    try:
+        await update.message.delete()
+    except Exception:
+        pass
 
     if not await check_bot_admin(update, context):
         return
 
     if not await is_admin(update, context):
-        await update.message.reply_text("Only admins can end the voice chat.")
+        await context.bot.send_message(chat_id=chat_id, text="Only admins can end the voice chat.")
         return
 
     room_id = str(abs(int(chat_id)))
+
+    # Get the session info before deleting it to find the message ID
+    group = await groups_collection.find_one({"_id": chat_id})
+    msg_id = group.get("active_session", {}).get("msg_id")
 
     await groups_collection.update_one(
         {"_id": chat_id},
         {"$unset": {"active_session": ""}}
     )
+
+    # Delete the Join VC message and unpin if possible
+    if msg_id:
+        try:
+            await context.bot.unpin_chat_message(chat_id=chat_id, message_id=msg_id)
+            await context.bot.delete_message(chat_id=chat_id, message_id=msg_id)
+        except Exception as e:
+            logger.warning(f"Failed to delete/unpin message: {e}")
 
     # Notify backend to forcefully clear Redis and close WebSockets
     backend_url = os.getenv("BACKEND_URL", "http://localhost:8000").rstrip("/")
@@ -119,4 +154,4 @@ async def end_vc(update: Update, context: ContextTypes.DEFAULT_TYPE):
     except Exception as e:
         logger.error(f"Failed to clear room on backend: {e}")
 
-    await update.message.reply_text("🔴 Voice Chat ended.")
+    await context.bot.send_message(chat_id=chat_id, text="🔴 Voice Chat ended.")
