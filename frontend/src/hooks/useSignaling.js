@@ -8,7 +8,7 @@ const POLL_INTERVAL_MS = 2000;
 export function useSignaling(roomId, userId, user, onMessage) {
   const [ws, setWs] = useState(null);
   const [connectionStatus, setConnectionStatus] = useState('Connecting...');
-  const { addParticipant, removeParticipant, setParticipants, addMessage, isMuted } = useRoomStore();
+  const { addParticipant, removeParticipant, setParticipants, addMessage, isMuted, isSpeakerOn } = useRoomStore();
   const wsRef = useRef(null);
   const transportRef = useRef('ws');
   const reconnectTimeout = useRef(null);
@@ -42,6 +42,9 @@ export function useSignaling(roomId, userId, user, onMessage) {
         console.log(`[Signal] Participant ${message.from_user_id} mute: ${message.is_muted}`);
         updateParticipant(message.from_user_id, { is_muted: message.is_muted });
         break;
+      case 'speaker':
+        console.log(`[Signal] Participant ${message.from_user_id} speaker on: ${message.is_speaker_on}`);
+        break;
       case 'chat_message':
         addMessage({
           id: Date.now() + Math.random(),
@@ -61,7 +64,6 @@ export function useSignaling(roomId, userId, user, onMessage) {
         wsRef.current.send(JSON.stringify(msg));
       }
     } else {
-      // Use both /api and root paths for maximum compatibility
       const url = `${httpUrlRef.current}/signal/${roomId}/${userId}`;
       const fallbackUrl = `${httpUrlRef.current}/api/signal/${roomId}/${userId}`;
       
@@ -88,7 +90,6 @@ export function useSignaling(roomId, userId, user, onMessage) {
       setConnectionStatus('Connecting...');
       transportRef.current = 'ws';
 
-      // Try root /ws path
       const wsHost = backendEnv.replace(/^https?:\/\//, '').replace(/\/$/, '');
       const wsUrl = `wss://${wsHost}/ws/${roomId}/${userId}`;
 
@@ -217,6 +218,14 @@ export function useSignaling(roomId, userId, user, onMessage) {
       ws.send(JSON.stringify({ type: 'mute', is_muted: isMuted }));
     }
   }, [isMuted, ws]);
+
+  // Sync speaker state to server
+  useEffect(() => {
+    if (ws && (ws.readyState === WebSocket.OPEN || ws._isSSE)) {
+      console.log(`[Signal] Sending speaker state: ${isSpeakerOn}`);
+      ws.send(JSON.stringify({ type: 'speaker', is_speaker_on: isSpeakerOn }));
+    }
+  }, [isSpeakerOn, ws]);
 
   return { ws, connectionStatus };
 }

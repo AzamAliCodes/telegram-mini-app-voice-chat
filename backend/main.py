@@ -113,6 +113,10 @@ async def _handle_message(message: dict, room_id: str, user_id: str):
             if p["user_id"] == user_id: p["is_muted"] = is_m
         await manager.set_participants(room_id, parts)
         await manager.broadcast_to_room(room_id, {"type": "mute", "from_user_id": user_id, "is_muted": is_m}, exclude_user=user_id)
+    elif m_type == "speaker":
+        is_spk = message.get("is_speaker_on", True)
+        logger.info(f"Speaker Toggle: user={user_id} on={is_spk}")
+        await manager.broadcast_to_room(room_id, {"type": "speaker", "from_user_id": user_id, "is_speaker_on": is_spk}, exclude_user=user_id)
     elif m_type == "chat_message":
         text = message.get("text", "")
         if text:
