@@ -7,10 +7,12 @@ import ParticipantList from './ParticipantList';
 import ControlPanel from './ControlPanel';
 import RoomJoin from './RoomJoin';
 import ChatPanel from './ChatPanel';
+import RoomEnded from './RoomEnded';
+import RoomNotStarted from './RoomNotStarted';
 
 export default function VoiceChat() {
   const { tg, user, isReady, enableClosingConfirmation } = useTelegram();
-  const { participants, roomName, showChat, toggleChat } = useRoomStore();
+  const { participants, roomName, showChat, toggleChat, roomEnded, roomNotStarted } = useRoomStore();
   const [roomId, setRoomId] = useState(null);
   const [joined, setJoined] = useState(false);
   const wsRef = useRef(null);
@@ -89,6 +91,14 @@ export default function VoiceChat() {
   const onLeave = () => {
     tg.close();
   };
+
+  if (roomEnded) {
+    return <RoomEnded onClose={onLeave} />;
+  }
+
+  if (roomNotStarted) {
+    return <RoomNotStarted onClose={onLeave} />;
+  }
 
   if (!joined) {
     return <RoomJoin roomId={roomId} onJoin={() => setJoined(true)} />;

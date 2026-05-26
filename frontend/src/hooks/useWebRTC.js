@@ -5,8 +5,20 @@ export function useWebRTC(roomId, userId, wsRef) {
   const pcs = useRef({});
   const localStream = useRef(null);
   const iceServers = useRef([{ urls: 'stun:stun.l.google.com:19302' }]);
-  const { isMuted, isSpeakerOn } = useRoomStore();
+  const { isMuted, isSpeakerOn, roomEnded } = useRoomStore();
   const [streamReady, setStreamReady] = useState(false);
+
+  useEffect(() => {
+    if (roomEnded) {
+        console.log("[WebRTC] Room ended, stopping all tracks and closing connections.");
+        if (localStream.current) {
+            localStream.current.getTracks().forEach(track => track.stop());
+        }
+        Object.values(pcs.current).forEach(pc => pc.close());
+        pcs.current = {};
+        document.querySelectorAll('audio[id^="audio-"]').forEach(el => el.remove());
+    }
+  }, [roomEnded]);
 
   useEffect(() => {
     async function fetchIceConfig() {

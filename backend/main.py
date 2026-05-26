@@ -37,6 +37,22 @@ async def health():
 @app.websocket("/api/ws/{room_id}/{user_id}")
 async def websocket_endpoint(websocket: WebSocket, room_id: str, user_id: str):
     logger.info(f"WS Attempt: {user_id}")
+    
+    # Check room state
+    from .core.redis import redis_client
+    room_state = await redis_client.get(f"room:{room_id}:state")
+    if room_state == "ended":
+        await websocket.accept()
+        await websocket.send_text(json.dumps({"type": "room_ended"}))
+        await websocket.close(code=1000)
+        return
+    elif not room_state:
+        # If no state is found, it means the room was never started or expired
+        await websocket.accept()
+        await websocket.send_text(json.dumps({"type": "room_not_started"}))
+        await websocket.close(code=1000)
+        return
+
     await manager.connect(websocket, room_id, user_id)
     try:
         # Auto-Auth for v3.1 Debugging
@@ -59,6 +75,15 @@ async def websocket_endpoint(websocket: WebSocket, room_id: str, user_id: str):
 @app.post("/api/poll/{room_id}/{user_id}/connect")
 async def poll_connect(room_id: str, user_id: str, request: Request):
     logger.info(f"Poll Connect: {user_id}")
+    
+    # Check if room is ended
+    from .core.redis import redis_client
+    room_state = await redis_client.get(f"room:{room_id}:state")
+    if room_state == "ended":
+        return {"status": "error", "message": "room_ended"}
+    elif not room_state:
+        return {"status": "error", "message": "room_not_started"}
+
     manager.register_sse_client(room_id, user_id)
     body = await request.json()
     if body.get("type"): await _handle_message(body, room_id, user_id)

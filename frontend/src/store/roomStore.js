@@ -7,8 +7,12 @@ export const useRoomStore = create((set) => ({
   roomName: 'Voice Chat',
   messages: [],
   showChat: false,
+  roomEnded: false,
+  roomNotStarted: false,
 
   setParticipants: (participants) => set({ participants }),
+  setRoomEnded: (ended) => set({ roomEnded: ended }),
+  setRoomNotStarted: (notStarted) => set({ roomNotStarted: notStarted }),
   addParticipant: (participant) => set((state) => {
     // Prevent duplicates based on user_id
     if (state.participants.some(p => p.user_id === participant.user_id)) {

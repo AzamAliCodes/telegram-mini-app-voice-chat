@@ -5,6 +5,8 @@ from ..utils.telegram_helpers import is_admin
 from ..middleware.admin_check import check_bot_admin
 from datetime import datetime
 import os
+import httpx
+from loguru import logger
 
 async def vc_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
     chat_id = str(update.effective_chat.id)
@@ -45,6 +47,14 @@ async def vc_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
     # startapp param passes the room_id (group chat ID) to the Mini App
     # The Mini App reads it via Telegram.WebApp.initDataUnsafe.start_param
     miniapp_link = f"https://t.me/{bot_username}/app?startapp={room_id}"
+
+    # Notify backend to clear 'ended' state and mark as active
+    backend_url = os.getenv("BACKEND_URL", "http://localhost:8000").rstrip("/")
+    try:
+        async with httpx.AsyncClient() as client:
+            await client.post(f"{backend_url}/api/room/{room_id}/start", timeout=5.0)
+    except Exception as e:
+        logger.error(f"Failed to notify backend of room start: {e}")
 
     keyboard = InlineKeyboardMarkup([[
         InlineKeyboardButton(

@@ -28,10 +28,18 @@ export function useSignaling(roomId, userId, user, onMessage) {
 
   // ── Shared message handler ─────────────────────────────────────────
   function handleIncomingMessage(message) {
-    const { updateParticipant } = useRoomStore.getState();
+    const { updateParticipant, setRoomEnded, setRoomNotStarted } = useRoomStore.getState();
     if (message.type === 'pong' || message.type === 'auth_ok') return;
 
     switch (message.type) {
+      case 'room_ended':
+        console.log("[Signal] Room has been ended by admin.");
+        setRoomEnded(true);
+        break;
+      case 'room_not_started':
+        console.log("[Signal] Room is not active yet.");
+        setRoomNotStarted(true);
+        break;
       case 'room_state':
         setParticipants(message.participants);
         break;
@@ -176,6 +184,19 @@ export function useSignaling(roomId, userId, user, onMessage) {
 
         if (!res.ok) throw new Error(`HTTP ${res.status}`);
         const data = await res.json();
+        
+        if (data.status === 'error' && data.message === 'room_ended') {
+            useRoomStore.getState().setRoomEnded(true);
+            setConnectionStatus('Room Ended');
+            return;
+        }
+
+        if (data.status === 'error' && data.message === 'room_not_started') {
+            useRoomStore.getState().setRoomNotStarted(true);
+            setConnectionStatus('Inactive');
+            return;
+        }
+
         if (data.initial_state) setParticipants(data.initial_state);
 
         setConnectionStatus('Connected');

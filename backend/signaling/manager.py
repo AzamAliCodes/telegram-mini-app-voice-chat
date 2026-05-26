@@ -170,12 +170,23 @@ class ConnectionManager:
 
     async def end_room(self, room_id: str):
         message = {"type": "room_ended"}
+        
+        # Mark room as ended in Redis persistently for 24 hours
+        try:
+            await redis_client.set(f"room:{room_id}:state", "ended", ex=86400)
+        except Exception as e:
+            logger.error(f"Failed to set room ended state in Redis: {e}")
+
+        # Broadcast to all before closing
+        await self.broadcast_to_room(room_id, message)
+
+        # Give a small buffer for message delivery
+        await asyncio.sleep(0.5)
 
         # Close WebSocket clients
         if room_id in self.active_connections:
-            for websocket in self.active_connections[room_id].values():
+            for websocket in list(self.active_connections[room_id].values()):
                 try:
-                    await websocket.send_text(json.dumps(message))
                     await websocket.close(code=1000)
                 except Exception:
                     pass
@@ -183,15 +194,9 @@ class ConnectionManager:
 
         # Notify SSE clients
         if room_id in self.sse_clients:
-            for queue in self.sse_clients[room_id].values():
-                try:
-                    queue.put_nowait(message)
-                except asyncio.QueueFull:
-                    pass
             del self.sse_clients[room_id]
 
         await redis_client.delete(f"room:{room_id}:participants")
-        await redis_client.delete(f"room:{room_id}:state")
         logger.info(f"Room {room_id} forcefully ended and Redis state cleared.")
 
 
