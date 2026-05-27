@@ -111,7 +111,7 @@ export default function VoiceChat() {
             <span className="text-[10px] text-white/50">{connectionStatus}</span>
         </div>
         <div className="bg-white/10 px-3 py-1 rounded-full text-xs text-white/70">
-          {participants.length + 1} online
+          {participants.filter(p => String(p.user_id) !== String(userId)).length + 1} online
         </div>
       </div>
 
