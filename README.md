@@ -15,22 +15,22 @@ The system is built as a monorepo containing three core services:
 - **`frontend/`**: React + Vite + TailwindCSS. A polished Telegram Mini App that provides the voice chat UI and WebRTC peer-to-peer audio connectivity.
 
 ```
-┌──────────┐     WebSocket      ┌──────────┐     WebSocket     ┌──────────┐
-│  User A  │ ←─────────────────→│ FastAPI  │←──────────────────→│  User B  │
-│ (Mini    │     (signaling)    │ (Signaling│    (signaling)    │ (Mini    │
-│  App)    │←══════════════════→│  Server) │←═════════════════→│  App)    │
-└──────────┘  Peer-to-Peer      └────┬─────┘  Peer-to-Peer     └──────────┘
+┌──────────┐     WebSocket      ┌──────────┐     WebSocket      ┌──────────┐
+│  User A  │←──────────────────→│ FastAPI  │←──────────────────→│  User B  │
+│  (Mini   │     (signaling)    │(Signaling│    (signaling)     │  (Mini   │
+│   App)   │←══════════════════→│  Server) │←══════════════════→│   App)   │
+└──────────┘  Peer-to-Peer      └────┬─────┘  Peer-to-Peer      └──────────┘
       │           Audio              │            Audio            │
       │                              │                             │
-      │                    ┌─────────┴─────────┐                  │
-      │                    │  MongoDB (groups,  │                  │
-      │                    │  users)            │                  │
-      │                    │  Redis (rooms,     │                  │
-      │                    │  participants)     │                  │
-      │                    └─────────┬─────────┘                  │
-      │                              │                            │
-      │                    ┌─────────┴─────────┐                  │
-      └───────────────────→│  Python Bot       │←─────────────────┘
+      │                    ┌─────────┴─────────┐                   │
+      │                    │  MongoDB (groups, │                   │
+      │                    │  users)           │                   │
+      │                    │  Redis (rooms,    │                   │
+      │                    │  participants)    │                   │
+      │                    └─────────┬─────────┘                   │
+      │                              │                             │
+      │                    ┌─────────┴─────────┐                   │
+      └───────────────────→│  Python Bot       │←──────────────────┘
                            │  (polling)        │
                            └───────────────────┘
 ```
@@ -114,34 +114,32 @@ This starts the bot, backend, frontend, MongoDB, Redis, and an Nginx reverse pro
 
 | Service | Platform | Notes |
 |---------|----------|-------|
-| Frontend | Netlify / Vercel | Static SPA — connect your repo, auto-deploys |
-| Bot | Hugging Face Spaces | Docker SDK — Runs 24/7 for free |
-| Backend | Hugging Face Spaces | Docker SDK — Same container as Bot |
-| MongoDB | MongoDB Atlas | Free tier (512 MB) — Allow IP `0.0.0.0/0` |
-| Redis | Upstash Redis | Free tier (100 MB) — Always on |
+| Frontend | [Netlify](https://app.netlify.com/) / [Vercel](https://vercel.com/dashboard) | Static SPA — connect your repo, auto-deploys |
+| Bot | [Hugging Face Spaces](https://huggingface.co/spaces) | Docker SDK — Port 7860 mandatory |
+| Backend | [Hugging Face Spaces](https://huggingface.co/spaces) | Docker SDK — Port 7860 mandatory |
+| MongoDB | [MongoDB Atlas](https://cloud.mongodb.com/) | Free tier (512 MB) — Allow IP `0.0.0.0/0` |
+| Redis | [Upstash Redis](https://console.upstash.com/) | Free tier (100 MB) — Use `rediss://` for TLS |
+| TURN | [Metered.live](https://dashboard.metered.ca/) | Standard WebRTC relay |
 
 ---
 
 ## 🔐 Configuration & Environment Secrets
 
-Managing secrets securely is critical for production. **NEVER commit your `.env` file to version control.**
-
 ### 🛠️ Service-Specific Environment Mapping
 
-When deploying, add these variables to the respective hosting platforms:
-
 #### 1. Backend & Bot (Hugging Face Spaces - Docker)
+> **IMPORTANT:** Hugging Face requires Docker containers to listen on port **7860**. The provided `Dockerfile` is already optimized for this.
+
 | Variable | Value / Source |
 |---|---|
-| `MONGODB_URI` | Your MongoDB Atlas connection string |
-| `REDIS_URL` | Your Upstash Redis connection string |
-| `TELEGRAM_BOT_TOKEN` | Your Bot Token from @BotFather |
-| `TELEGRAM_BOT_USERNAME` | Your bot's username (without @) |
-| `MINIAPP_URL` | Your public Netlify URL (e.g., `https://site.netlify.app`) |
-| `BACKEND_URL` | Your HF Direct URL (e.g., `https://user-space.hf.space`) |
-| `TELEGRAM_API_PROXY` | *(Optional)* Cloudflare Worker URL to bypass API blocks |
-| `ENVIRONMENT` | `production` |
-| `SECRET_KEY` | A long random string for security |
+| `MONGODB_URI` | Your [MongoDB Atlas](https://cloud.mongodb.com/) connection string |
+| `REDIS_URL` | **MUST** start with `rediss://` ([Upstash](https://console.upstash.com/) TLS) |
+| `TELEGRAM_BOT_TOKEN` | Your Bot Token from [@BotFather](https://t.me/BotFather) |
+| `TURN_URL` | e.g., `turn:sub.metered.live:443` ([Metered.live](https://dashboard.metered.ca/)) |
+| `TURN_USERNAME` | Your TURN provider username |
+| `TURN_PASSWORD` | Your TURN provider password |
+| `BACKEND_URL` | Your [HF Space](https://huggingface.co/spaces) URL |
+| `MINIAPP_URL` | Your public [Netlify](https://app.netlify.com/) / [Vercel](https://vercel.com/dashboard) URL |
 
 #### 2. Frontend (Netlify - Static Site)
 | Variable | Value / Source |
@@ -153,16 +151,14 @@ When deploying, add these variables to the respective hosting platforms:
 
 ### 🛡️ Bypassing Cloud Firewalls (Cloudflare Proxy)
 
-If you are hosting the Bot on a free service like Hugging Face Spaces, your connection to `api.telegram.org` might be blocked, resulting in a `ConnectError` or timeout in your logs.
+If you are hosting the Bot on a free service like Hugging Face Spaces, your connection to `api.telegram.org` might be blocked.
 
-You can bypass this for free by creating a Cloudflare Worker to act as a proxy:
+You can bypass this by creating a [Cloudflare Worker](https://workers.cloudflare.com/) to act as a proxy:
 
 1. Sign up for a free [Cloudflare](https://dash.cloudflare.com/) account.
-2. Go to **Workers & Pages** in the left sidebar.
-3. Click **Create application** and then select **Start with Hello World!**.
-4. Name your worker (e.g., `tg-proxy`) and click the blue **Deploy** button.
-5. Once deployed, click the **Edit Code** button.
-6. Delete the existing code and replace it with this exact script:
+2. Go to **Workers & Pages** $\rightarrow$ **Create application** $\rightarrow$ **Create Worker** (use the default "Hello World" template).
+3. Name your worker (e.g., `tg-proxy`) and click **Deploy**.
+4. Once deployed, click **Edit Code**, delete the existing template code, and paste this:
    ```javascript
    export default {
      async fetch(request) {
@@ -172,11 +168,11 @@ You can bypass this for free by creating a Cloudflare Worker to act as a proxy:
      },
    };
    ```
-7. Click **Deploy** in the top right corner.
-8. Copy your new Worker URL (e.g., `https://tg-proxy.yourname.workers.dev`). Note: A `404` error when visiting this link directly is normal!
-9. In your hosting provider's Secrets (e.g., Hugging Face Settings), add a new secret:
+5. Click **Deploy** (top right) to save the changes.
+6. Copy your new Worker URL (e.g., `https://tg-proxy.yourname.workers.dev`).
+7. In your hosting provider's Secrets (e.g., [Hugging Face Settings](https://huggingface.co/settings/secrets)), add a new secret:
    * **Key:** `TELEGRAM_API_PROXY`
-   * **Value:** Your Worker URL (without a trailing slash).
+   * **Value:** Your Worker URL.
 
 Restart your server, and the bot will connect successfully!
 
@@ -214,15 +210,15 @@ For a built-in console on your phone, add this to your `index.html` during devel
 
 | Variable | Description | Source |
 |---|---|---|
-| `TELEGRAM_BOT_TOKEN` | API Token for your bot | @BotFather |
+| `TELEGRAM_BOT_TOKEN` | API Token for your bot | [@BotFather](https://t.me/BotFather) |
 | `SUPPORT_CHANNEL` | Support channel username (without @) | Telegram |
-| `MINIAPP_URL` | The public URL of your React app | Netlify URL |
-| `MONGODB_URI` | Connection string for MongoDB | MongoDB Atlas |
-| `REDIS_URL` | Connection string for Redis | Upstash Redis |
-| `TURN_URL` | TURN server URL for WebRTC | Metered.ca / Twilio |
-| `TURN_USERNAME` | TURN server username | Metered.ca / Twilio |
-| `TURN_PASSWORD` | TURN server password | Metered.ca / Twilio |
-| `BACKEND_URL` | Public URL of your FastAPI server | HF Direct URL |
+| `MINIAPP_URL` | The public URL of your React app | [Netlify](https://www.netlify.com/) / [Vercel](https://vercel.com/) |
+| `MONGODB_URI` | Connection string for MongoDB | [MongoDB Atlas](https://www.mongodb.com/atlas/database) |
+| `REDIS_URL` | Connection string for Redis | [Upstash Redis](https://upstash.com/) |
+| `TURN_URL` | TURN server URL for WebRTC | [Metered.live](https://www.metered.ca/) |
+| `TURN_USERNAME` | TURN server username | [Metered.live](https://www.metered.ca/) |
+| `TURN_PASSWORD` | TURN server password | [Metered.live](https://www.metered.ca/) |
+| `BACKEND_URL` | Public URL of your FastAPI server | [Hugging Face Space URL](https://huggingface.co/spaces) |
 | `ENVIRONMENT` | `production` | Manual |
 | `SECRET_KEY` | "Master Key" for security | Random string |
 

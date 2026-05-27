@@ -1,2 +1,0 @@
-VITE_BACKEND_URL=https://asdvffegrhgfh-vcbot-backend.hf.space
-VITE_WS_URL=wss://asdvffegrhgfh-vcbot-backend.hf.space
