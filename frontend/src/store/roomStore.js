@@ -9,15 +9,34 @@ export const useRoomStore = create((set) => ({
   showChat: false,
   roomEnded: false,
   roomNotStarted: false,
+  notification: null, // { message: string, type: 'info' | 'success' | 'warning' }
+
+  setNotification: (notification) => {
+    set({ notification });
+    if (notification) {
+      setTimeout(() => set((state) => {
+        if (state.notification?.message === notification.message) {
+            return { notification: null };
+        }
+        return state;
+      }), 4000);
+    }
+  },
 
   setParticipants: (participants) => set({ participants }),
   setRoomEnded: (ended) => set({ roomEnded: ended }),
   setRoomNotStarted: (notStarted) => set({ roomNotStarted: notStarted }),
   addParticipant: (participant) => set((state) => {
-    // Prevent duplicates based on user_id (force string comparison)
     const newId = String(participant.user_id);
-    if (state.participants.some(p => String(p.user_id) === newId)) {
-      return state;
+    const existing = state.participants.find(p => String(p.user_id) === newId);
+    
+    if (existing) {
+      // Update existing participant info
+      return {
+        participants: state.participants.map(p => 
+          String(p.user_id) === newId ? { ...p, ...participant } : p
+        )
+      };
     }
     return { participants: [...state.participants, { ...participant, user_id: newId }] };
   }),

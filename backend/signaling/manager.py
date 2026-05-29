@@ -45,6 +45,10 @@ class ConnectionManager:
                 participants = [p for p in participants if str(p.get("user_id")) != s_user_id]
                 await self.set_participants(room_id, participants)
                 logger.info(f"[Room: {room_id}] [Users: {len(participants)}] Action: LEAVE | user_id={s_user_id}")
+                
+                # CRITICAL: Broadcast to remaining users
+                await self.broadcast_to_room(room_id, {"type": "user_left", "from_user_id": s_user_id})
+                await self.broadcast_to_room(room_id, {"type": "room_state", "participants": participants})
         except Exception as e:
             logger.error(f"Error during disconnect cleanup: {e}")
 

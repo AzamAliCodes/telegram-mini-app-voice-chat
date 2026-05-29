@@ -45,7 +45,7 @@ export function useSignaling(roomId, userId, user, onMessage, shouldJoin = false
 
   // ── Shared message handler ─────────────────────────────────────────
   function handleIncomingMessage(message) {
-    const { updateParticipant, setRoomEnded, setRoomNotStarted } = useRoomStore.getState();
+    const { updateParticipant, setRoomEnded, setRoomNotStarted, setNotification, participants } = useRoomStore.getState();
     if (message.type === 'pong' || message.type === 'auth_ok') return;
 
     switch (message.type) {
@@ -62,9 +62,14 @@ export function useSignaling(roomId, userId, user, onMessage, shouldJoin = false
         break;
       case 'user_joined':
         addParticipant({ user_id: message.from_user_id, ...message.user_info });
+        setNotification({ message: `${message.user_info.first_name || 'Someone'} joined`, type: 'success' });
         break;
       case 'user_left':
+        const leavingUser = participants.find(p => String(p.user_id) === String(message.from_user_id));
         removeParticipant(message.from_user_id);
+        if (leavingUser) {
+            setNotification({ message: `${leavingUser.first_name} left`, type: 'info' });
+        }
         break;
       case 'speaking':
         updateParticipant(message.from_user_id, { is_speaking: message.is_speaking });
