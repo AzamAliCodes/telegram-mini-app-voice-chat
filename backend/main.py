@@ -36,7 +36,7 @@ async def health():
 @app.websocket("/ws/{room_id}/{user_id}")
 @app.websocket("/api/ws/{room_id}/{user_id}")
 async def websocket_endpoint(websocket: WebSocket, room_id: str, user_id: str):
-    logger.info(f"WS Attempt: {user_id}")
+    logger.info(f"[Room: {room_id}] Action: WS_CONNECT_ATTEMPT | user_id={user_id}")
     
     # Check room state
     from .core.redis import redis_client
@@ -58,7 +58,7 @@ async def websocket_endpoint(websocket: WebSocket, room_id: str, user_id: str):
         # Auto-Auth for v3.1 Debugging
         try:
             raw = await asyncio.wait_for(websocket.receive_text(), timeout=1.0)
-            logger.info(f"Handshake from {user_id}")
+            logger.info(f"[Room: {room_id}] Action: HANDSHAKE | user_id={user_id}")
         except: pass
         
         await websocket.send_text(json.dumps({"type": "auth_ok"}))
@@ -68,13 +68,13 @@ async def websocket_endpoint(websocket: WebSocket, room_id: str, user_id: str):
     except WebSocketDisconnect:
         await manager.disconnect(room_id, user_id)
     except Exception as e:
-        logger.error(f"WS Err {user_id}: {e}")
+        logger.error(f"[Room: {room_id}] Action: WS_ERROR | user_id={user_id} error='{e}'")
         await manager.disconnect(room_id, user_id)
 
 @app.post("/poll/{room_id}/{user_id}/connect")
 @app.post("/api/poll/{room_id}/{user_id}/connect")
 async def poll_connect(room_id: str, user_id: str, request: Request):
-    logger.info(f"Poll Connect: {user_id}")
+    logger.info(f"[Room: {room_id}] Action: POLL_CONNECT | user_id={user_id}")
     
     # Check if room is ended
     from .core.redis import redis_client
@@ -123,6 +123,7 @@ async def _handle_message(message: dict, room_id: str, user_id: str):
     elif m_type == "join":
         u_info = message.get("user_info", {})
         parts = await manager.add_participant(room_id, user_id, u_info)
+        logger.info(f"[Room: {room_id}] [Users: {len(parts)}] Action: JOIN | user_id={user_id} name='{u_info.get('first_name', 'Anon')}'")
         await manager.broadcast_to_room(room_id, {"type": "room_state", "participants": parts})
         await manager.broadcast_to_room(room_id, {"type": "user_joined", "from_user_id": user_id, "user_info": u_info}, exclude_user=user_id)
     elif m_type in ["offer", "answer", "ice_candidate"]:
@@ -132,19 +133,22 @@ async def _handle_message(message: dict, room_id: str, user_id: str):
             await manager.send_to_user(room_id, target, message)
     elif m_type == "mute":
         is_m = message.get("is_muted", True)
-        logger.info(f"Mute Toggle: user={user_id} muted={is_m}")
         parts = await manager.get_participants(room_id)
+        logger.info(f"[Room: {room_id}] [Users: {len(parts)}] Action: MUTE_TOGGLE | user_id={user_id} is_muted={is_m}")
         for p in parts:
             if p["user_id"] == user_id: p["is_muted"] = is_m
         await manager.set_participants(room_id, parts)
         await manager.broadcast_to_room(room_id, {"type": "mute", "from_user_id": user_id, "is_muted": is_m}, exclude_user=user_id)
     elif m_type == "speaker":
         is_spk = message.get("is_speaker_on", True)
-        logger.info(f"Speaker Toggle: user={user_id} on={is_spk}")
+        parts = await manager.get_participants(room_id)
+        logger.info(f"[Room: {room_id}] [Users: {len(parts)}] Action: SPEAKER_TOGGLE | user_id={user_id} is_speaker_on={is_spk}")
         await manager.broadcast_to_room(room_id, {"type": "speaker", "from_user_id": user_id, "is_speaker_on": is_spk}, exclude_user=user_id)
     elif m_type == "chat_message":
         text = message.get("text", "")
         if text:
+            parts = await manager.get_participants(room_id)
+            logger.info(f"[Room: {room_id}] [Users: {len(parts)}] Action: CHAT_MSG | user_id={user_id}")
             await manager.broadcast_to_room(room_id, {
                 "type": "chat_message",
                 "from_user_id": user_id,
@@ -157,4 +161,4 @@ app.include_router(rooms.router, prefix="/api")
 
 @app.get("/")
 async def root():
-    return {"status": "ok", "msg": "VCBot v3.1 Running"}
+    return {"status": "ok", "msg": "VCBot Backend Running"}
