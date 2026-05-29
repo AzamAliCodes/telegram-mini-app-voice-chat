@@ -10,6 +10,19 @@ export const useRoomStore = create((set) => ({
   roomEnded: false,
   roomNotStarted: false,
   notification: null, // { message: string, type: 'info' | 'success' | 'warning' }
+  liveMessages: [], // Array of { id, sender_name, text }
+
+  addLiveMessage: (msg) => {
+    const id = Date.now() + Math.random();
+    const newMsg = { ...msg, id };
+    set((state) => ({ liveMessages: [...state.liveMessages, newMsg].slice(-3) })); // Keep only last 3
+    
+    setTimeout(() => {
+        set((state) => ({
+            liveMessages: state.liveMessages.filter(m => m.id !== id)
+        }));
+    }, 6000);
+  },
 
   setNotification: (notification) => {
     set({ notification });

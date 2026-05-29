@@ -88,6 +88,11 @@ export function useSignaling(roomId, userId, user, onMessage, shouldJoin = false
           sender_name: message.sender_name,
           text: message.text
         });
+        // Trigger live pop-up bubble
+        useRoomStore.getState().addLiveMessage({
+            sender_name: message.sender_name,
+            text: message.text
+        });
         break;
     }
     if (onMessageRef.current) onMessageRef.current(message);

@@ -10,6 +10,7 @@ import ChatPanel from './ChatPanel';
 import RoomEnded from './RoomEnded';
 import RoomNotStarted from './RoomNotStarted';
 import Toast from './Toast';
+import ChatBubbles from './ChatBubbles';
 
 export default function VoiceChat() {
   const { tg, user, isReady, enableClosingConfirmation } = useTelegram();
@@ -120,6 +121,7 @@ export default function VoiceChat() {
         {showChat ? <ChatPanel ws={ws} /> : <ParticipantList />}
       </div>
 
+      <ChatBubbles />
       <Toast />
       <ControlPanel onLeave={onLeave} onToggleChat={toggleChat} />
     </div>
