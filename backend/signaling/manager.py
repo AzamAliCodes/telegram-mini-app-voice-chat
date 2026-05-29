@@ -22,25 +22,31 @@ class ConnectionManager:
             self.active_connections[room_id] = {}
         s_user_id = str(user_id)
         self.active_connections[room_id][s_user_id] = websocket
-        logger.info(f"WebSocket established: room={room_id}, user={s_user_id}")
+        logger.info(f"[Room: {room_id}] Action: WS_CONNECTED | user_id={s_user_id}")
 
     async def disconnect(self, room_id: str, user_id: str):
         s_user_id = str(user_id)
         if room_id in self.active_connections:
             if s_user_id in self.active_connections[room_id]:
                 del self.active_connections[room_id][s_user_id]
-                logger.info(f"WebSocket closed: user={s_user_id}")
+                logger.info(f"[Room: {room_id}] Action: WS_DISCONNECTED | user_id={s_user_id}")
 
         # Also clean up SSE client if present
         if room_id in self.sse_clients:
             if s_user_id in self.sse_clients[room_id]:
                 del self.sse_clients[room_id][s_user_id]
-                logger.info(f"SSE client removed: user={s_user_id}")
+                logger.info(f"[Room: {room_id}] Action: SSE_DISCONNECTED | user_id={s_user_id}")
 
-        # Remove from Redis participant list
-        participants = await self.get_participants(room_id)
-        participants = [p for p in participants if str(p.get("user_id")) != s_user_id]
-        await self.set_participants(room_id, participants)
+        # Remove from Redis participant list with Lock
+        lock_key = f"room:{room_id}:lock"
+        try:
+            async with redis_client.lock(lock_key, timeout=5):
+                participants = await self.get_participants(room_id)
+                participants = [p for p in participants if str(p.get("user_id")) != s_user_id]
+                await self.set_participants(room_id, participants)
+                logger.info(f"[Room: {room_id}] [Users: {len(participants)}] Action: LEAVE | user_id={s_user_id}")
+        except Exception as e:
+            logger.error(f"Error during disconnect cleanup: {e}")
 
         # Check if room is now empty (both WS and SSE)
         ws_empty = room_id not in self.active_connections or not self.active_connections[room_id]
@@ -51,7 +57,7 @@ class ConnectionManager:
             if room_id in self.sse_clients:
                 del self.sse_clients[room_id]
             await redis_client.expire(f"room:{room_id}:participants", 3600)
-            logger.info(f"Room {room_id} is now empty.")
+            logger.info(f"[Room: {room_id}] Action: ROOM_EMPTY | Room is now empty and participants set to expire.")
 
     # ── SSE connections ───────────────────────────────────────────
 
@@ -62,7 +68,7 @@ class ConnectionManager:
             self.sse_clients[room_id] = {}
         queue = asyncio.Queue(maxsize=100)
         self.sse_clients[room_id][s_user_id] = queue
-        logger.info(f"SSE client registered: room={room_id}, user={s_user_id}")
+        logger.info(f"[Room: {room_id}] Action: SSE_CONNECTED | user_id={s_user_id}")
         return queue
 
     def unregister_sse_client(self, room_id: str, user_id: str):
@@ -71,7 +77,7 @@ class ConnectionManager:
         if room_id in self.sse_clients:
             if s_user_id in self.sse_clients[room_id]:
                 del self.sse_clients[room_id][s_user_id]
-                logger.info(f"SSE client unregistered: room={room_id}, user={s_user_id}")
+                logger.info(f"[Room: {room_id}] Action: SSE_UNREGISTERED | user_id={s_user_id}")
 
     def is_connected(self, room_id: str, user_id: str) -> bool:
         """Check if a user is connected via either WS or SSE."""
@@ -98,19 +104,22 @@ class ConnectionManager:
 
     async def add_participant(self, room_id: str, user_id: str, user_info: dict):
         s_user_id = str(user_id)
-        participants = await self.get_participants(room_id)
-        participants = [p for p in participants if str(p.get("user_id")) != s_user_id]
-        new_participant = {
-            "user_id": s_user_id,
-            "first_name": user_info.get("first_name", "Anonymous"),
-            "photo_url": user_info.get("photo_url", ""),
-            "is_muted": True,
-            "is_speaking": False
-        }
-        participants.append(new_participant)
-        await self.set_participants(room_id, participants)
-        logger.info(f"User {s_user_id} added to room {room_id}. Total: {len(participants)}")
-        return participants
+        lock_key = f"room:{room_id}:lock"
+        
+        async with redis_client.lock(lock_key, timeout=5):
+            participants = await self.get_participants(room_id)
+            participants = [p for p in participants if str(p.get("user_id")) != s_user_id]
+            new_participant = {
+                "user_id": s_user_id,
+                "first_name": user_info.get("first_name", "Anonymous"),
+                "photo_url": user_info.get("photo_url", ""),
+                "is_muted": user_info.get("is_muted", True),
+                "is_speaking": False
+            }
+            participants.append(new_participant)
+            await self.set_participants(room_id, participants)
+            logger.info(f"[Room: {room_id}] [Users: {len(participants)}] Action: JOIN_SUCCESS | user_id={s_user_id}")
+            return participants
 
     # ── Message delivery (unified WS + SSE) ───────────────────────
 
@@ -197,7 +206,7 @@ class ConnectionManager:
             del self.sse_clients[room_id]
 
         await redis_client.delete(f"room:{room_id}:participants")
-        logger.info(f"Room {room_id} forcefully ended and Redis state cleared.")
+        logger.info(f"[Room: {room_id}] Action: END_ROOM | Redis state cleared.")
 
 
 manager = ConnectionManager()
