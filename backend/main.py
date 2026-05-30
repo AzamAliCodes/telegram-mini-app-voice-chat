@@ -31,7 +31,7 @@ async def log_requests(request: Request, call_next):
 
 @app.get("/health")
 async def health():
-    return {"status": "ok", "v": "3.1"}
+    return {"status": "ok"}
 
 @app.websocket("/ws/{room_id}/{user_id}")
 @app.websocket("/api/ws/{room_id}/{user_id}")
@@ -144,6 +144,9 @@ async def _handle_message(message: dict, room_id: str, user_id: str):
         parts = await manager.get_participants(room_id)
         logger.info(f"[Room: {room_id}] [Users: {len(parts)}] Action: SPEAKER_TOGGLE | user_id={user_id} is_speaker_on={is_spk}")
         await manager.broadcast_to_room(room_id, {"type": "speaker", "from_user_id": user_id, "is_speaker_on": is_spk}, exclude_user=user_id)
+    elif m_type == "speaking":
+        is_spk = message.get("is_speaking", False)
+        await manager.broadcast_to_room(room_id, {"type": "speaking", "from_user_id": user_id, "is_speaking": is_spk}, exclude_user=user_id)
     elif m_type == "chat_message":
         text = message.get("text", "")
         if text:

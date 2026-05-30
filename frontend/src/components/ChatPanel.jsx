@@ -1,4 +1,4 @@
-import React, { useState, useRef, useEffect } from 'react';
+import { useState, useRef, useEffect } from 'react';
 import { useRoomStore } from '../store/roomStore';
 import { useTelegram } from '../hooks/useTelegram';
 import { Send, X } from 'lucide-react';

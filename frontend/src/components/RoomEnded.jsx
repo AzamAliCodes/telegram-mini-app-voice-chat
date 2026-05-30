@@ -1,5 +1,3 @@
-import React from 'react';
-
 export default function RoomEnded({ onClose }) {
   return (
     <div className="flex flex-col items-center justify-center h-screen bg-gradient-to-br from-[#5B6BC0] via-[#4A3080] to-[#8B5A7A] p-6 font-sans text-white">

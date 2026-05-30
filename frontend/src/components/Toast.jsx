@@ -1,4 +1,3 @@
-import React from 'react';
 import { useRoomStore } from '../store/roomStore';
 
 export default function Toast() {

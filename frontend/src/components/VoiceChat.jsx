@@ -1,4 +1,4 @@
-import React, { useEffect, useState, useCallback, useRef } from 'react';
+import { useEffect, useState, useCallback, useRef, useMemo } from 'react';
 import { useRoomStore } from '../store/roomStore';
 import { useTelegram } from '../hooks/useTelegram';
 import { useSignaling } from '../hooks/useSignaling';
@@ -15,13 +15,11 @@ import ChatBubbles from './ChatBubbles';
 export default function VoiceChat() {
   const { tg, user, isReady, enableClosingConfirmation } = useTelegram();
   const { participants, roomName, showChat, toggleChat, roomEnded, roomNotStarted } = useRoomStore();
-  const [roomId, setRoomId] = useState(null);
   const [joined, setJoined] = useState(false);
   const wsRef = useRef(null);
 
-  useEffect(() => {
+  const roomId = useMemo(() => {
     let id = tg?.initDataUnsafe?.start_param;
-    
     if (!id) {
         const rawUrl = window.location.href;
         if (rawUrl.includes('tgWebAppStartParam=')) {
@@ -30,24 +28,38 @@ export default function VoiceChat() {
             id = rawUrl.split('room=')[1].split('&')[0].split('#')[0];
         }
     }
-    
-    setRoomId(id || 'default_room');
-    // tg.ready() and tg.expand() are now handled by useTelegram hook
-    enableClosingConfirmation();
+    return id || 'default_room';
   }, [tg]);
 
-  const [fallbackId] = useState(`anon_${Math.floor(Math.random() * 1000000)}`);
+  useEffect(() => {
+    enableClosingConfirmation();
+  }, [enableClosingConfirmation]);
+
+  const [fallbackId] = useState(() => `anon_${Math.floor(Math.random() * 1000000)}`);
   const userId = user?.id?.toString() || fallbackId;
 
   // Only pass roomId to hooks if 'joined' AND Telegram SDK is ready,
   // preventing WebSocket connections before the mobile native bridge is up.
   const activeRoomId = (joined && isReady) ? roomId : null;
 
-  const { handleOffer, handleAnswer, handleIceCandidate, handleUserLeft, createPeerConnection, streamReady } = useWebRTC(activeRoomId, userId, wsRef);
+  const { handleOffer, handleAnswer, handleIceCandidate, handleUserLeft, createPeerConnection, flushOutgoingIce, resumeAudio } = useWebRTC(activeRoomId, userId, wsRef);
 
-  const onSignalingMessage = useCallback(async (message, ws) => {
-    if (!ws) return;
+  // Global audio unlocker for the very first interaction
+  useEffect(() => {
+    const unlock = () => {
+        resumeAudio();
+        // We keep it active to catch late-arriving tracks, 
+        // but we can remove it if we want to be more efficient.
+    };
+    window.addEventListener('click', unlock);
+    window.addEventListener('touchstart', unlock);
+    return () => {
+        window.removeEventListener('click', unlock);
+        window.removeEventListener('touchstart', unlock);
+    };
+  }, [resumeAudio]);
 
+  const onSignalingMessage = useCallback(async (message) => {
     try {
       switch (message.type) {
         case 'offer':
@@ -64,30 +76,27 @@ export default function VoiceChat() {
         case 'user_left':
           handleUserLeft(message.from_user_id);
           break;
-        case 'user_joined':
-          console.log("[VoiceChat] User joined, creating offer for", message.from_user_id);
-          // Wait slightly for the newcomer to be ready to receive
-          setTimeout(async () => {
-            const pc = createPeerConnection(message.from_user_id);
-            const offer = await pc.createOffer({ offerToReceiveAudio: true });
-            await pc.setLocalDescription(offer);
-            ws.send(JSON.stringify({
-              type: 'offer',
-              target_user_id: message.from_user_id,
-              offer: offer
-            }));
-          }, 800);
+        case 'user_joined': {
+          console.log("[VoiceChat] User joined, creating connection for", message.from_user_id);
+          createPeerConnection(message.from_user_id);
           break;
+        }
       }
     } catch (e) {
       console.error("Signaling handler error:", e);
     }
-  }, [handleOffer, handleAnswer, handleIceCandidate, createPeerConnection]);
+  }, [handleOffer, handleAnswer, handleIceCandidate, createPeerConnection, handleUserLeft]);
 
   // Connect to signaling immediately once Telegram is ready to check room state (ended/not started)
   const signalingRoomId = isReady ? roomId : null;
-  const { ws, connectionStatus } = useSignaling(signalingRoomId, userId, user, (msg) => onSignalingMessage(msg, ws), joined);
-  wsRef.current = ws;
+  const { ws, connectionStatus } = useSignaling(signalingRoomId, userId, user, onSignalingMessage, joined);
+  
+  useEffect(() => {
+    wsRef.current = ws;
+    if (connectionStatus === 'Connected') {
+        flushOutgoingIce();
+    }
+  }, [ws, flushOutgoingIce, connectionStatus]);
 
   const onLeave = () => {
     tg.close();
@@ -102,8 +111,12 @@ export default function VoiceChat() {
   }
 
   if (!joined) {
-    return <RoomJoin roomId={roomId} onJoin={() => setJoined(true)} />;
+    return <RoomJoin roomId={roomId} onJoin={() => {
+        setJoined(true);
+        resumeAudio();
+    }} />;
   }
+
 
   return (
     <div className="flex flex-col h-screen bg-gradient-to-br from-[#5B6BC0] via-[#4A3080] to-[#8B5A7A] p-4 font-sans text-white overflow-hidden">
@@ -118,12 +131,13 @@ export default function VoiceChat() {
       </div>
 
       <div className="flex-1 bg-white/15 backdrop-blur-xl border border-white/20 rounded-[24px] p-5 mb-6 overflow-y-auto relative">
-        {showChat ? <ChatPanel ws={ws} /> : <ParticipantList />}
+        {showChat ? <ChatPanel ws={ws} /> : <ParticipantList localUserId={userId} />}
       </div>
 
       <ChatBubbles />
       <Toast />
-      <ControlPanel onLeave={onLeave} onToggleChat={toggleChat} />
+      <ControlPanel onLeave={onLeave} onToggleChat={toggleChat} resumeAudio={resumeAudio} />
     </div>
   );
 }
+

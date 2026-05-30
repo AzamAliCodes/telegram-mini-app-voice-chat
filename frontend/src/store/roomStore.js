@@ -4,6 +4,7 @@ export const useRoomStore = create((set) => ({
   participants: [],
   isMuted: true,
   isSpeakerOn: true,
+  isLocalSpeaking: false,
   roomName: 'Voice Chat',
   messages: [],
   showChat: false,
@@ -11,6 +12,8 @@ export const useRoomStore = create((set) => ({
   roomNotStarted: false,
   notification: null, // { message: string, type: 'info' | 'success' | 'warning' }
   liveMessages: [], // Array of { id, sender_name, text }
+
+  setLocalSpeaking: (speaking) => set({ isLocalSpeaking: speaking }),
 
   addLiveMessage: (msg) => {
     const id = Date.now() + Math.random();
