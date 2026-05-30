@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState } from 'react';
+import { useEffect, useRef, useState, useCallback } from 'react';
 import { useRoomStore } from '../store/roomStore';
 
 const CONNECTION_TIMEOUT_MS = 10000;
@@ -27,25 +27,9 @@ export function useSignaling(roomId, userId, user, onMessage, shouldJoin = false
     onMessageRef.current = onMessage;
   }, [onMessage]);
 
-  // Handle the 'join' signal when the UI says we are ready to join
-  useEffect(() => {
-    if (shouldJoin && !hasJoinedRef.current && wsRef.current) {
-        console.log("[Signal] Triggering delayed join...");
-        sendMessage({
-            type: 'join',
-            user_info: {
-              first_name: user?.first_name || 'Anonymous',
-              photo_url: user?.photo_url || '',
-              is_muted: isMuted
-            }
-        });
-        hasJoinedRef.current = true;
-    }
-  }, [shouldJoin, ws]);
-
   // ── Shared message handler ─────────────────────────────────────────
-  function handleIncomingMessage(message) {
-    const { updateParticipant, setRoomEnded, setRoomNotStarted, setNotification, participants } = useRoomStore.getState();
+  const handleIncomingMessage = useCallback((message) => {
+    const { updateParticipant, setRoomEnded, setRoomNotStarted, setNotification, participants: currentParticipants } = useRoomStore.getState();
     if (message.type === 'pong' || message.type === 'auth_ok') return;
 
     switch (message.type) {
@@ -58,19 +42,22 @@ export function useSignaling(roomId, userId, user, onMessage, shouldJoin = false
         setRoomNotStarted(true);
         break;
       case 'room_state':
+        console.log(`[Signal] Received room state with ${message.participants?.length} users:`, message.participants);
         setParticipants(message.participants);
         break;
       case 'user_joined':
+        console.log(`[Signal] User joined: ${message.from_user_id} (${message.user_info?.first_name})`);
         addParticipant({ user_id: message.from_user_id, ...message.user_info });
         setNotification({ message: `${message.user_info.first_name || 'Someone'} joined`, type: 'success' });
         break;
-      case 'user_left':
-        const leavingUser = participants.find(p => String(p.user_id) === String(message.from_user_id));
+      case 'user_left': {
+        const leavingUser = currentParticipants.find(p => String(p.user_id) === String(message.from_user_id));
         removeParticipant(message.from_user_id);
         if (leavingUser) {
             setNotification({ message: `${leavingUser.first_name} left`, type: 'info' });
         }
         break;
+      }
       case 'speaking':
         updateParticipant(message.from_user_id, { is_speaking: message.is_speaking });
         break;
@@ -96,10 +83,10 @@ export function useSignaling(roomId, userId, user, onMessage, shouldJoin = false
         break;
     }
     if (onMessageRef.current) onMessageRef.current(message);
-  }
+  }, [addMessage, addParticipant, removeParticipant, setParticipants]);
 
   // ── Send helper ────────────────────────────────────────────────────
-  function sendMessage(msg) {
+  const sendMessage = useCallback((msg) => {
     if (transportRef.current === 'ws') {
       if (wsRef.current?.readyState === WebSocket.OPEN) {
         wsRef.current.send(JSON.stringify(msg));
@@ -117,10 +104,26 @@ export function useSignaling(roomId, userId, user, onMessage, shouldJoin = false
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
             body: JSON.stringify(msg),
-         });
+         }).catch(e => console.error("[Signal] Send failed:", e));
       });
     }
-  }
+  }, [roomId, userId]);
+
+  // Handle the 'join' signal when the UI says we are ready to join
+  useEffect(() => {
+    if (shouldJoin && !hasJoinedRef.current && wsRef.current) {
+        console.log("[Signal] Triggering delayed join...");
+        sendMessage({
+            type: 'join',
+            user_info: {
+              first_name: user?.first_name || 'Anonymous',
+              photo_url: user?.photo_url || '',
+              is_muted: isMuted
+            }
+        });
+        hasJoinedRef.current = true;
+    }
+  }, [shouldJoin, ws, user?.first_name, user?.photo_url, isMuted, sendMessage]);
 
   useEffect(() => {
     if (!roomId || !userId) return;
@@ -139,7 +142,7 @@ export function useSignaling(roomId, userId, user, onMessage, shouldJoin = false
       let socket;
       try {
         socket = new WebSocket(wsUrl);
-      } catch (err) {
+      } catch {
         handleWsFailure();
         return;
       }
@@ -245,7 +248,9 @@ export function useSignaling(roomId, userId, user, onMessage, shouldJoin = false
               const pollData = await pollRes.json();
               pollData.messages?.forEach(handleIncomingMessage);
             }
-          } catch {}
+          } catch {
+            // Polling error, will retry on next interval
+          }
         }, POLL_INTERVAL_MS);
 
         const pollWsShim = { 
@@ -273,6 +278,7 @@ export function useSignaling(roomId, userId, user, onMessage, shouldJoin = false
       clearInterval(pollIntervalRef.current);
       if (wsRef.current?.close) wsRef.current.close();
     };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [roomId, userId]);
 
   // Sync mute state to server (only if joined)

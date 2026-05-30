@@ -12,7 +12,7 @@ class Settings(BaseSettings):
     MONGODB_URI: str = os.getenv("MONGODB_URI", "mongodb://localhost:27017/vcbot")
     REDIS_URL: str = os.getenv("REDIS_URL", "redis://localhost:6379/0")
     
-    TURN_URL: str = os.getenv("TURN_URL", "stun:stun.l.google.com:19302")
+    TURN_URL: str = os.getenv("TURN_URL", "")
     TURN_USERNAME: str = os.getenv("TURN_USERNAME", "")
     TURN_PASSWORD: str = os.getenv("TURN_PASSWORD", "")
     

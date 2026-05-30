@@ -1,5 +1,3 @@
-import React from 'react';
-
 export default function RoomJoin({ roomId, onJoin }) {
   const handleJoin = () => {
     // Standard trick to unlock audio context on mobile/Safari:
