@@ -115,7 +115,7 @@ export default function VoiceChat() {
   }
 
   if (!joined) {
-    return <RoomJoin roomId={roomId} onJoin={() => {
+    return <RoomJoin roomId={roomId} status={connectionStatus} onJoin={() => {
         setJoined(true);
         resumeAudio();
     }} />;

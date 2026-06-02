@@ -55,13 +55,27 @@ async def websocket_endpoint(websocket: WebSocket, room_id: str, user_id: str):
 
     await manager.connect(websocket, room_id, user_id)
     try:
-        # Auto-Auth for v3.1 Debugging
+        # 1. Robust Handshake: Handle the first message (usually 'auth' or 'join' if very fast)
         try:
-            raw = await asyncio.wait_for(websocket.receive_text(), timeout=1.0)
-            logger.info(f"[Room: {room_id}] Action: HANDSHAKE | user_id={user_id}")
-        except: pass
+            raw = await asyncio.wait_for(websocket.receive_text(), timeout=2.0)
+            msg = json.loads(raw)
+            m_type = msg.get("type")
+            if m_type == "auth":
+                logger.info(f"[Room: {room_id}] Action: HANDSHAKE_AUTH | user_id={user_id}")
+            elif m_type == "join":
+                # Handle early join
+                await _handle_message(msg, room_id, user_id)
+            else:
+                logger.info(f"[Room: {room_id}] Action: HANDSHAKE_UNKNOWN | type={m_type} user_id={user_id}")
+        except asyncio.TimeoutError:
+            logger.warning(f"[Room: {room_id}] Action: HANDSHAKE_TIMEOUT | user_id={user_id}")
+        except Exception as e:
+            logger.error(f"[Room: {room_id}] Action: HANDSHAKE_ERROR | user_id={user_id} err={e}")
         
+        # 2. Confirm connection to client
         await websocket.send_text(json.dumps({"type": "auth_ok"}))
+
+        # 3. Main event loop
         while True:
             data = await websocket.receive_text()
             await _handle_message(json.loads(data), room_id, user_id)
