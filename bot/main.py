@@ -1,58 +1,98 @@
 import logging
 import os
+import asyncio
+import sys
 from telegram import Update, InlineKeyboardButton, InlineKeyboardMarkup
 from telegram.ext import ApplicationBuilder, CommandHandler, ContextTypes, MessageHandler, filters
+from telegram.request import HTTPXRequest
 from bot.handlers import dm_commands, group_commands
 from bot.middleware import admin_check
 from dotenv import load_dotenv
 
+# Force load environment before anything else
 load_dotenv()
 
 # Enable logging
 logging.basicConfig(
     format="%(asctime)s - %(name)s - %(levelname)s - %(message)s", level=logging.INFO
 )
-# set higher logging level for httpx to avoid logging json response bodies
 logging.getLogger("httpx").setLevel(logging.WARNING)
-
 logger = logging.getLogger(__name__)
 
 async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
     support_channel = os.getenv("SUPPORT_CHANNEL", "")
     welcome_text = (
-        "🎙️ *Welcome to VCBot!* \n\n"
-        "I help you host custom-branded **Voice Chat** rooms inside your Telegram groups using our Mini App.\n\n"
-        "🚀 *Getting Started:*\n"
-        "1. **Add me** to your group as an administrator.\n"
-        "2. In your group, type `/vc start` to launch the room!\n\n"
-        "💡 *Need help?* Type /help for a full command list."
+        "🎙️ *Welcome to Voice Chat Manager!*\n\n"
+        "I provide a seamless experience for hosting custom-branded Voice Chat rooms directly within your Telegram groups using an integrated Mini App.\n\n"
+        "🚀 *How to Get Started:*\n"
+        "1. **Add me** to your group and grant me Administrator privileges.\n"
+        "2. In your group, send the command `/start_vc` to initialize a new voice chat session.\n\n"
+        "💡 *Require Assistance?* Send `/help` to view the comprehensive command directory."
     )
     keyboard = []
     if support_channel:
         keyboard.append([InlineKeyboardButton("Support", url=f"https://t.me/{support_channel}")])
     await update.message.reply_text(welcome_text, parse_mode="Markdown", reply_markup=InlineKeyboardMarkup(keyboard) if keyboard else None)
 
-def main():
+async def run_bot():
     token = os.getenv("TELEGRAM_BOT_TOKEN")
     if not token:
-        logger.error("TELEGRAM_BOT_TOKEN not found in environment variables")
+        logger.error("TELEGRAM_BOT_TOKEN not found")
         return
 
-    application = ApplicationBuilder().token(token).build()
+    # Check for custom API URL (Cloudflare Bridge)
+    custom_api_url = os.getenv("TELEGRAM_API_PROXY")
 
-    # Handlers
-    application.add_handler(CommandHandler("start", start))
-    application.add_handler(CommandHandler("help", dm_commands.help_command))
-    
-    # Group Handlers
-    application.add_handler(CommandHandler("vc", group_commands.vc_command))
-    application.add_handler(CommandHandler("endvc", group_commands.end_vc))
-    
-    # New chat member / Bot added to group handler
-    application.add_handler(MessageHandler(filters.StatusUpdate.NEW_CHAT_MEMBERS, admin_check.bot_added_to_group))
+    while True:
+        try:
+            logger.info("Initializing bot application...")
+            # Ultra-resilient settings for extreme cloud latency
+            request = HTTPXRequest(connect_timeout=100, read_timeout=100, write_timeout=100, pool_timeout=100)
+            
+            builder = (
+                ApplicationBuilder()
+                .token(token)
+                .request(request)
+                .get_updates_request(request)
+            )
+            
+            if custom_api_url:
+                logger.info(f"Using Telegram API Proxy: {custom_api_url}")
+                # Ensure the URL is correctly formatted for python-telegram-bot
+                clean_url = f"{custom_api_url.rstrip('/')}/bot"
+                builder = builder.base_url(clean_url)
 
-    logger.info("Bot started")
-    application.run_polling()
+            application = builder.build()
+
+            application.add_handler(CommandHandler("start", start))
+            application.add_handler(CommandHandler("help", dm_commands.help_command))
+            application.add_handler(CommandHandler("start_vc", group_commands.start_vc_command))
+            application.add_handler(CommandHandler("join_vc", group_commands.join_vc_command))
+            application.add_handler(CommandHandler("end_vc", group_commands.end_vc_command))
+            application.add_handler(MessageHandler(filters.StatusUpdate.NEW_CHAT_MEMBERS, admin_check.bot_added_to_group))
+
+            logger.info("Starting bot polling...")
+            async with application:
+                await application.initialize()
+                await application.start()
+                await application.updater.start_polling(drop_pending_updates=True)
+                
+                # Keep the bot running
+                while application.updater.running:
+                    await asyncio.sleep(1)
+                    
+        except Exception as e:
+            logger.error(f"Bot connection/startup failed: {e}. Retrying in 15s...")
+            await asyncio.sleep(15)
+
+def main():
+    try:
+        asyncio.run(run_bot())
+    except KeyboardInterrupt:
+        pass
+    except Exception as e:
+        logger.error(f"Fatal exception: {e}")
+        sys.exit(1)
 
 if __name__ == "__main__":
     main()
