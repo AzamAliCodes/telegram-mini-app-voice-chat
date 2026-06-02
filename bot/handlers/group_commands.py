@@ -1,4 +1,4 @@
-from telegram import Update, InlineKeyboardButton, InlineKeyboardMarkup
+from telegram import Update, InlineKeyboardButton, InlineKeyboardMarkup, constants
 from telegram.ext import ContextTypes
 from ..core.db import groups_collection
 from ..utils.telegram_helpers import is_admin
@@ -12,7 +12,11 @@ import asyncio
 # Local cache to skip DB lookups for instant UI cleanup
 msg_id_cache = {}
 
-async def vc_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
+async def start_vc_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    if update.effective_chat.type == constants.ChatType.PRIVATE:
+        await update.message.reply_text("❌ *Group Command Only*\n\nThis command must be used inside a Telegram Group where I am an Administrator.", parse_mode="Markdown")
+        return
+
     chat_id = str(update.effective_chat.id)
     user_id = update.effective_user.id
     
@@ -20,11 +24,7 @@ async def vc_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
     try: asyncio.create_task(update.message.delete())
     except: pass
 
-    if not context.args or context.args[0] != "start":
-        await show_join_button(update, context)
-        return
-
-    # Instant Local Setup
+    # Instant Local Setup for STARTing
     room_id = str(abs(int(chat_id)))
     bot_username = os.getenv("TELEGRAM_BOT_USERNAME", "tgvcgroup_bot")
     miniapp_link = f"https://t.me/{bot_username}/app?startapp={room_id}"
@@ -48,8 +48,8 @@ async def vc_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
             if not is_bot_admin or not is_user_admin:
                 await sent_msg.delete()
-                err = "Only admins can start a voice chat." if not is_user_admin else "Please promote me to Admin."
-                await context.bot.send_message(chat_id=chat_id, text=f"❌ {err}")
+                err = "❌ Admin rights required to start Voice Chat." if not is_user_admin else "❌ Please promote me to Admin to function properly."
+                await context.bot.send_message(chat_id=chat_id, text=err)
                 return
 
             # 3. PERSISTENCE
@@ -73,6 +73,29 @@ async def vc_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
     # FIRE AND FORGET - COMPLETELY INSTANT HANDLER RETURN
     asyncio.create_task(run_vc_start_flow())
 
+async def join_vc_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    if update.effective_chat.type == constants.ChatType.PRIVATE:
+        await update.message.reply_text("❌ *Group Command Only*\n\nThis command must be used inside a Telegram Group where I am an Administrator.", parse_mode="Markdown")
+        return
+
+    chat_id = str(update.effective_chat.id)
+    
+    # Fire and forget deletion of user command
+    try: asyncio.create_task(update.message.delete())
+    except: pass
+
+    # DB check to know what to show
+    group = await groups_collection.find_one({"_id": chat_id})
+    if not group or not group.get("active_session"):
+        await context.bot.send_message(chat_id=chat_id, text="❌ There is currently no active voice chat session. Use `/start_vc` to initialize one.")
+        return
+    room_id = group["active_session"]["room_id"]
+    bot_username = os.getenv("TELEGRAM_BOT_USERNAME", "tgvcgroup_bot")
+    miniapp_link = f"https://t.me/{bot_username}/app?startapp={room_id}"
+    keyboard = InlineKeyboardMarkup([[InlineKeyboardButton(text="🎙️ Join Voice Chat", url=miniapp_link)]])
+    await context.bot.send_message(chat_id=chat_id, text="🎙️ An active voice chat session is currently running!", reply_markup=keyboard)
+
+
 async def is_admin_silent(chat_id, user_id, context):
     try:
         member = await context.bot.get_chat_member(chat_id, user_id)
@@ -85,20 +108,11 @@ async def check_bot_admin_silent(chat_id, context):
         return bot_member.status in ["administrator", "creator"]
     except: return False
 
-async def show_join_button(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    chat_id = str(update.effective_chat.id)
-    # This one needs a DB check to know what to show, but we still use context.bot.send_message
-    group = await groups_collection.find_one({"_id": chat_id})
-    if not group or not group.get("active_session"):
-        await context.bot.send_message(chat_id=chat_id, text="There is no active voice chat session. Use `/vc start` to start one.")
+async def end_vc_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    if update.effective_chat.type == constants.ChatType.PRIVATE:
+        await update.message.reply_text("❌ *Group Command Only*\n\nThis command must be used inside a Telegram Group where I am an Administrator.", parse_mode="Markdown")
         return
-    room_id = group["active_session"]["room_id"]
-    bot_username = os.getenv("TELEGRAM_BOT_USERNAME", "tgvcgroup_bot")
-    miniapp_link = f"https://t.me/{bot_username}/app?startapp={room_id}"
-    keyboard = InlineKeyboardMarkup([[InlineKeyboardButton(text="🎙️ Join Voice Chat", url=miniapp_link)]])
-    await context.bot.send_message(chat_id=chat_id, text="An active voice chat is running!", reply_markup=keyboard)
 
-async def end_vc(update: Update, context: ContextTypes.DEFAULT_TYPE):
     chat_id = str(update.effective_chat.id)
     user_id = update.effective_user.id
     
@@ -123,10 +137,17 @@ async def end_vc(update: Update, context: ContextTypes.DEFAULT_TYPE):
             
             # 3. STATUS FEEDBACK
             status_msg = await context.bot.send_message(chat_id=chat_id, text="🔴 Voice Chat ended.")
+            
+            # Auto-delete status message after 20 seconds to keep chat clean
+            async def auto_delete_status():
+                await asyncio.sleep(20)
+                try: await context.bot.delete_message(chat_id=chat_id, message_id=status_msg.message_id)
+                except: pass
+            asyncio.create_task(auto_delete_status())
 
             # 4. BACKGROUND VALIDATION & CLEANUP
             if not await is_admin_silent(chat_id, user_id, context):
-                try: await status_msg.edit_text("❌ Only admins can end the voice chat.")
+                try: await status_msg.edit_text("❌ Admin rights required to end Voice Chat.")
                 except: pass
                 return
 

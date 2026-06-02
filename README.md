@@ -81,9 +81,10 @@ Copy and paste these commands into [@BotFather](https://t.me/BotFather) to set u
 
 ```
 start - Welcome message
-help - Show all available commands
-vc - Join or start a voice chat (group)
-endvc - End the active voice chat (group)
+help - Display the help menu
+start_vc - Start a new voice chat (Admins)
+join_vc - Join the active voice chat
+end_vc - End the voice chat (Admins)
 ```
 
 ---

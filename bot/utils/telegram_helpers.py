@@ -1,5 +1,12 @@
+import os
 from telegram import Update
 from telegram.ext import ContextTypes
+
+def get_support_channel() -> str:
+    channel = os.getenv("SUPPORT_CHANNEL")
+    if not channel or channel.lower() in ["none", "null", "undefined", ""]:
+        return "tgvcgroup_bot"
+    return channel.lstrip("@")
 
 async def is_admin(update: Update, context: ContextTypes.DEFAULT_TYPE, user_id: int = None):
     chat_id = update.effective_chat.id

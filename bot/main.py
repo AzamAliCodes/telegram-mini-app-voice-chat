@@ -7,6 +7,7 @@ from telegram.ext import ApplicationBuilder, CommandHandler, ContextTypes, Messa
 from telegram.request import HTTPXRequest
 from bot.handlers import dm_commands, group_commands
 from bot.middleware import admin_check
+from bot.utils.telegram_helpers import get_support_channel
 from dotenv import load_dotenv
 
 # Force load environment before anything else
@@ -20,14 +21,14 @@ logging.getLogger("httpx").setLevel(logging.WARNING)
 logger = logging.getLogger(__name__)
 
 async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    support_channel = os.getenv("SUPPORT_CHANNEL", "")
+    support_channel = get_support_channel()
     welcome_text = (
-        "🎙️ *Welcome to VCBot!* \n\n"
-        "I help you host custom-branded **Voice Chat** rooms inside your Telegram groups using our Mini App.\n\n"
-        "🚀 *Getting Started:*\n"
-        "1. **Add me** to your group as an administrator.\n"
-        "2. In your group, type `/vc start` to launch the room!\n\n"
-        "💡 *Need help?* Type /help for a full command list."
+        "🎙️ *Welcome to Voice Chat Manager!*\n\n"
+        "Host custom Voice Chat rooms in your groups using our integrated Mini App.\n\n"
+        "🚀 *How to Start:*\n"
+        "1. **Add me** to your group as Admin.\n"
+        "2. Send `/start_vc` in the group to begin.\n\n"
+        "💡 *Need Help?* Send `/help` for commands."
     )
     keyboard = []
     if support_channel:
@@ -66,8 +67,9 @@ async def run_bot():
 
             application.add_handler(CommandHandler("start", start))
             application.add_handler(CommandHandler("help", dm_commands.help_command))
-            application.add_handler(CommandHandler("vc", group_commands.vc_command))
-            application.add_handler(CommandHandler("endvc", group_commands.end_vc))
+            application.add_handler(CommandHandler("start_vc", group_commands.start_vc_command))
+            application.add_handler(CommandHandler("join_vc", group_commands.join_vc_command))
+            application.add_handler(CommandHandler("end_vc", group_commands.end_vc_command))
             application.add_handler(MessageHandler(filters.StatusUpdate.NEW_CHAT_MEMBERS, admin_check.bot_added_to_group))
 
             logger.info("Starting bot polling...")
