@@ -18,6 +18,7 @@ db = client.get_default_database()
 
 # Collections
 groups_collection = db.groups
+allowed_groups_collection = db.allowed_groups
 
 async def ping_db():
     try:

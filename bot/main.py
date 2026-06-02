@@ -2,12 +2,13 @@ import logging
 import os
 import asyncio
 import sys
-from telegram import Update, InlineKeyboardButton, InlineKeyboardMarkup
+from telegram import Update, InlineKeyboardButton, InlineKeyboardMarkup, constants
 from telegram.ext import ApplicationBuilder, CommandHandler, ContextTypes, MessageHandler, filters
 from telegram.request import HTTPXRequest
-from bot.handlers import dm_commands, group_commands
+from bot.handlers import dm_commands, group_commands, dev_commands
 from bot.middleware import admin_check
-from bot.utils.telegram_helpers import get_support_channel
+from bot.utils.telegram_helpers import get_support_channel, is_owner
+from bot.core.db import ping_db
 from dotenv import load_dotenv
 
 # Force load environment before anything else
@@ -33,9 +34,14 @@ async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
     keyboard = []
     if support_channel:
         keyboard.append([InlineKeyboardButton("Support", url=f"https://t.me/{support_channel}")])
+    
+    # Logic for developers in DM
+    if update.effective_chat.type == constants.ChatType.PRIVATE and is_owner(update.effective_user.id):
+        welcome_text += "\n\n⚡ *Developer Mode Active*\nYou have access to sudo commands."
+
     await update.message.reply_text(welcome_text, parse_mode="Markdown", reply_markup=InlineKeyboardMarkup(keyboard) if keyboard else None)
 
-async def run_bot():
+def run_bot():
     token = os.getenv("TELEGRAM_BOT_TOKEN")
     if not token:
         logger.error("TELEGRAM_BOT_TOKEN not found")
@@ -44,51 +50,51 @@ async def run_bot():
     # Check for custom API URL (Cloudflare Bridge)
     custom_api_url = os.getenv("TELEGRAM_API_PROXY")
 
-    while True:
-        try:
-            logger.info("Initializing bot application...")
-            # Ultra-resilient settings for extreme cloud latency
-            request = HTTPXRequest(connect_timeout=100, read_timeout=100, write_timeout=100, pool_timeout=100)
-            
-            builder = (
-                ApplicationBuilder()
-                .token(token)
-                .request(request)
-                .get_updates_request(request)
-            )
-            
-            if custom_api_url:
-                logger.info(f"Using Telegram API Proxy: {custom_api_url}")
-                # Ensure the URL is correctly formatted for python-telegram-bot
-                clean_url = f"{custom_api_url.rstrip('/')}/bot"
-                builder = builder.base_url(clean_url)
+    logger.info("Initializing bot application...")
+    # Resilient settings for cloud environments
+    request = HTTPXRequest(connect_timeout=30, read_timeout=30, write_timeout=30, pool_timeout=30)
+    
+    builder = ApplicationBuilder().token(token).request(request).get_updates_request(request)
+    
+    if custom_api_url:
+        logger.info(f"Using Telegram API Proxy: {custom_api_url}")
+        builder = builder.base_url(f"{custom_api_url.rstrip('/')}/bot")
 
-            application = builder.build()
+    application = builder.build()
 
-            application.add_handler(CommandHandler("start", start))
-            application.add_handler(CommandHandler("help", dm_commands.help_command))
-            application.add_handler(CommandHandler("start_vc", group_commands.start_vc_command))
-            application.add_handler(CommandHandler("join_vc", group_commands.join_vc_command))
-            application.add_handler(CommandHandler("end_vc", group_commands.end_vc_command))
-            application.add_handler(MessageHandler(filters.StatusUpdate.NEW_CHAT_MEMBERS, admin_check.bot_added_to_group))
+    # Register Handlers
+    application.add_handler(CommandHandler("start", start))
+    application.add_handler(CommandHandler("help", dm_commands.help_command))
+    application.add_handler(CommandHandler("start_vc", group_commands.start_vc_command))
+    application.add_handler(CommandHandler("join_vc", group_commands.join_vc_command))
+    application.add_handler(CommandHandler("end_vc", group_commands.end_vc_command))
+    
+    application.add_handler(CommandHandler("list", dev_commands.list_groups))
+    application.add_handler(CommandHandler("add", dev_commands.add_group))
+    application.add_handler(CommandHandler("del", dev_commands.del_group))
+    application.add_handler(CommandHandler("id", dev_commands.get_id))
+    application.add_handler(CommandHandler("sync", dev_commands.sync_groups))
+    
+    application.add_handler(MessageHandler(filters.StatusUpdate.NEW_CHAT_MEMBERS, admin_check.bot_added_to_group))
 
-            logger.info("Starting bot polling...")
-            async with application:
-                await application.initialize()
-                await application.start()
-                await application.updater.start_polling(drop_pending_updates=True)
-                
-                # Keep the bot running
-                while application.updater.running:
-                    await asyncio.sleep(1)
-                    
-        except Exception as e:
-            logger.error(f"Bot connection/startup failed: {e}. Retrying in 15s...")
-            await asyncio.sleep(15)
+    # Prime Cache at Startup
+    async def post_init(app):
+        # Verify DB Connection
+        if not await ping_db():
+            logger.error("CRITICAL: MongoDB unreachable. Whitelist will be empty!")
+        
+        # Prime Whitelist Cache
+        asyncio.create_task(dev_commands.init_dev_cache())
+
+    application.post_init = post_init
+
+    logger.info("Bot starting...")
+    # run_polling handles its own event loop and signals correctly
+    application.run_polling(drop_pending_updates=True)
 
 def main():
     try:
-        asyncio.run(run_bot())
+        run_bot()
     except KeyboardInterrupt:
         pass
     except Exception as e:

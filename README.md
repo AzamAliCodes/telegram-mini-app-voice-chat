@@ -43,7 +43,27 @@ The server **never** touches audio data — only relays WebRTC signaling (offers
 - **Custom Voice Rooms**: Native WebRTC audio inside a Telegram Mini App.
 - **Free & Open for All**: No subscription or payment system — fully accessible.
 - **Modern UI**: Frosted glass cards, purple gradients, and real-time speaking animations.
+- **Group Authorization**: Secure whitelist system to restrict bot usage to approved groups only.
 - **Scalable**: Redis-backed session management and containerized deployment.
+
+---
+
+## 🛠️ Developer & Whitelist Management
+
+The bot is designed for private/client deployments. It will **automatically leave** any group that is not on the authorized whitelist.
+
+### 1. Set Up Developers
+Add your Telegram User ID(s) to the `OWNER_IDS` variable in your `.env` file (comma-separated). Users with these IDs are treated as the authorized developers of the bot.
+
+### 2. Manage Whitelist
+Authorized developers can manage groups via DM commands:
+- `/add <group_id>` — Authorize a new group for the bot.
+- `/del <group_id>` — Revoke a group's access.
+- `/list` — See all currently authorized groups and their IDs.
+- `/id` — Get ID of current chat, a replied-to user, or a username/link.
+- `/sync` — Force refresh group names and metadata from Telegram API.
+
+*Note: These commands are hidden from regular users and only appear in the `/help` menu for developers.*
 
 ---
 
@@ -136,6 +156,7 @@ This starts the bot, backend, frontend, MongoDB, Redis, and an Nginx reverse pro
 | `MONGODB_URI` | Your [MongoDB Atlas](https://cloud.mongodb.com/) connection string |
 | `REDIS_URL` | **MUST** start with `rediss://` ([Upstash](https://console.upstash.com/) TLS) |
 | `TELEGRAM_BOT_TOKEN` | Your Bot Token from [@BotFather](https://t.me/BotFather) |
+| `OWNER_IDS` | Comma-separated Telegram IDs (Get yours from [@RoseBot](https://t.me/MissRose_bot)) |
 | `TURN_URL` | e.g., `turn:sub.metered.live:443` ([Metered.live](https://dashboard.metered.ca/)) |
 | `TURN_USERNAME` | Your TURN provider username |
 | `TURN_PASSWORD` | Your TURN provider password |
@@ -212,6 +233,7 @@ For a built-in console on your phone, add this to your `index.html` during devel
 | Variable | Description | Source |
 |---|---|---|
 | `TELEGRAM_BOT_TOKEN` | API Token for your bot | [@BotFather](https://t.me/BotFather) |
+| `OWNER_IDS` | Comma-separated Developer IDs | [@RoseBot](https://t.me/MissRose_bot) |
 | `SUPPORT_CHANNEL` | Support channel username (without @) | Telegram |
 | `MINIAPP_URL` | The public URL of your React app | [Netlify](https://www.netlify.com/) / [Vercel](https://vercel.com/) |
 | `MONGODB_URI` | Connection string for MongoDB | [MongoDB Atlas](https://www.mongodb.com/atlas/database) |

@@ -13,5 +13,13 @@ class Settings(BaseSettings):
     REDIS_URL: str = os.getenv("REDIS_URL", "redis://localhost:6379/0")
     
     ENVIRONMENT: str = os.getenv("ENVIRONMENT", "development")
+    SUPPORT_CHANNEL: str = os.getenv("SUPPORT_CHANNEL", "")
+
+    # Bot Owners/Developers
+    @property
+    def OWNER_IDS(self) -> list[int]:
+        ids_str = os.getenv("OWNER_IDS", "")
+        # Returns a list of unique integers, handling whitespace and non-digits
+        return list(set(int(x.strip()) for x in ids_str.split(",") if x.strip().lstrip("-").isdigit()))
 
 settings = Settings()

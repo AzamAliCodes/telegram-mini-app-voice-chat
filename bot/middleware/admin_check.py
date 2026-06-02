@@ -1,17 +1,38 @@
 from telegram import Update
 from telegram.ext import ContextTypes
+from ..handlers.dev_commands import is_group_authorized
+import asyncio
 
 async def bot_added_to_group(update: Update, context: ContextTypes.DEFAULT_TYPE):
     """
     Called when the bot is added to a new group.
     """
+    chat_id = update.effective_chat.id
+    
+    # Immediate authorization check
+    if not is_group_authorized(str(chat_id)):
+        async def notify_and_leave():
+            welcome_msg = (
+                "🚫 *Unauthorized Group*\n\n"
+                "This group has not been approved for use with this bot. I will now leave the group.\n\n"
+                "Please contact the developer to authorize this Group ID.\n\n"
+                f"Group ID: `{chat_id}`"
+            )
+            try: await update.message.reply_text(welcome_msg, parse_mode="Markdown")
+            except: pass
+            try: await context.bot.leave_chat(chat_id)
+            except: pass
+        
+        asyncio.create_task(notify_and_leave())
+        return
+
     for member in update.message.new_chat_members:
         if member.id == context.bot.id:
             welcome_msg = (
-                "🎙️ *VCBot has joined the group!*\n\n"
-                "To start using custom Voice Chats, please:\n"
-                "1. **Make me an Administrator** (I need rights to read members).\n\n"
-                "Once setup is complete, use `/vc start` to launch the room!"
+                "🎙️ *Voice Chat Manager Active!*\n\n"
+                "To host custom Voice Chats in this group, please:\n"
+                "**Grant me Admin rights (Required to manage sessions).**\n\n"
+                "Once setup, use `/start_vc` to launch the room!"
             )
             await update.message.reply_text(welcome_msg, parse_mode="Markdown")
 

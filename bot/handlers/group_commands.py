@@ -2,6 +2,7 @@ from telegram import Update, InlineKeyboardButton, InlineKeyboardMarkup, constan
 from telegram.ext import ContextTypes
 from ..core.db import groups_collection
 from ..utils.telegram_helpers import is_admin
+from .dev_commands import is_group_authorized
 from ..middleware.admin_check import check_bot_admin
 from datetime import datetime
 import os
@@ -18,6 +19,19 @@ async def start_vc_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
         return
 
     chat_id = str(update.effective_chat.id)
+    
+    # Verify if this group is authorized (Whitelisted)
+    if not is_group_authorized(chat_id):
+        async def notify_and_leave():
+            try:
+                await update.message.reply_text(f"🚫 *Unauthorized Group*\n\nThis group has not been approved for use with this bot. I will now leave the group.\n\nPlease contact the developer for access.\n\nGroup ID: `{chat_id}`", parse_mode="Markdown")
+            except: pass
+            try: await context.bot.leave_chat(chat_id)
+            except: pass
+        
+        asyncio.create_task(notify_and_leave())
+        return
+
     user_id = update.effective_user.id
     
     # Fire and forget deletion of user command
@@ -32,7 +46,7 @@ async def start_vc_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
     async def run_vc_start_flow():
         try:
-            # 1. SEND & PIN (Sequenced for zero-gap)
+            # 1. SEND JOIN MESSAGE
             sent_msg = await context.bot.send_message(
                 chat_id=chat_id,
                 text=f"🎙️ *Voice Chat Started!*\n\nClick the button below to join.",
@@ -40,17 +54,23 @@ async def start_vc_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
                 parse_mode="Markdown"
             )
             msg_id_cache[chat_id] = sent_msg.message_id
-            await context.bot.pin_chat_message(chat_id=chat_id, message_id=sent_msg.message_id, disable_notification=True)
+            
+            # Try to pin (Safe fail if not admin)
+            try: await context.bot.pin_chat_message(chat_id=chat_id, message_id=sent_msg.message_id, disable_notification=True)
+            except: pass
             
             # 2. BACKGROUND VALIDATION
-            is_bot_admin = await check_bot_admin_silent(chat_id, context)
+            # User must still be an admin to start the VC
             is_user_admin = await is_admin_silent(chat_id, user_id, context)
-
-            if not is_bot_admin or not is_user_admin:
+            if not is_user_admin:
                 await sent_msg.delete()
-                err = "❌ Admin rights required to start Voice Chat." if not is_user_admin else "❌ Please promote me to Admin to function properly."
-                await context.bot.send_message(chat_id=chat_id, text=err)
+                await context.bot.send_message(chat_id=chat_id, text="❌ Only group admins can start Voice Chat.")
                 return
+
+            # Check if bot is admin (Log warning but proceed)
+            is_bot_admin = await check_bot_admin_silent(chat_id, context)
+            if not is_bot_admin:
+                logger.warning(f"Bot is not admin in {chat_id}. Proceeding with limited features.")
 
             # 3. PERSISTENCE
             backend_url = os.getenv("BACKEND_URL", "http://localhost:8000").rstrip("/")
@@ -80,6 +100,18 @@ async def join_vc_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
     chat_id = str(update.effective_chat.id)
     
+    # Whitelist Check
+    if not is_group_authorized(chat_id):
+        async def notify_and_leave():
+            try:
+                await update.message.reply_text(f"🚫 *Unauthorized Group*\n\nThis group has not been approved for use with this bot. I will now leave the group.\n\nPlease contact the developer for access.\n\nGroup ID: `{chat_id}`", parse_mode="Markdown")
+            except: pass
+            try: await context.bot.leave_chat(chat_id)
+            except: pass
+        
+        asyncio.create_task(notify_and_leave())
+        return
+
     # Fire and forget deletion of user command
     try: asyncio.create_task(update.message.delete())
     except: pass
@@ -114,6 +146,19 @@ async def end_vc_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
         return
 
     chat_id = str(update.effective_chat.id)
+
+    # Whitelist Check
+    if not is_group_authorized(chat_id):
+        async def notify_and_leave():
+            try:
+                await update.message.reply_text(f"🚫 *Unauthorized Group*\n\nThis group has not been approved for use with this bot. I will now leave the group.\n\nPlease contact the developer for access.\n\nGroup ID: `{chat_id}`", parse_mode="Markdown")
+            except: pass
+            try: await context.bot.leave_chat(chat_id)
+            except: pass
+        
+        asyncio.create_task(notify_and_leave())
+        return
+
     user_id = update.effective_user.id
     
     # Fire and forget deletion of user command
@@ -130,10 +175,14 @@ async def end_vc_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
                 group = await groups_collection.find_one({"_id": chat_id})
                 msg_id = group.get("active_session", {}).get("msg_id") if group else None
 
-            # 2. DELETE JOIN MSG INSTANTLY (Fire and forget)
+            # 2. DELETE JOIN MSG INSTANTLY (Safe fail if not admin)
             if msg_id:
-                asyncio.create_task(context.bot.unpin_chat_message(chat_id=chat_id, message_id=msg_id))
-                asyncio.create_task(context.bot.delete_message(chat_id=chat_id, message_id=msg_id))
+                async def safe_cleanup():
+                    try: await context.bot.unpin_chat_message(chat_id=chat_id, message_id=msg_id)
+                    except: pass
+                    try: await context.bot.delete_message(chat_id=chat_id, message_id=msg_id)
+                    except: pass
+                asyncio.create_task(safe_cleanup())
             
             # 3. STATUS FEEDBACK
             status_msg = await context.bot.send_message(chat_id=chat_id, text="🔴 Voice Chat ended.")
@@ -146,8 +195,9 @@ async def end_vc_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
             asyncio.create_task(auto_delete_status())
 
             # 4. BACKGROUND VALIDATION & CLEANUP
+            # User must still be an admin to end the VC
             if not await is_admin_silent(chat_id, user_id, context):
-                try: await status_msg.edit_text("❌ Admin rights required to end Voice Chat.")
+                try: await status_msg.edit_text("❌ Only group admins can end Voice Chat.")
                 except: pass
                 return
 
