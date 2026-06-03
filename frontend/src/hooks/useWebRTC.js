@@ -45,7 +45,7 @@ export function useWebRTC(roomId, userId, wsRef) {
     if (Object.keys(pending).length === 0) return;
     
     console.log(`[WebRTC] Flushing pending messages...`);
-    Object.entries(pending).forEach(([targetId, messages]) => {
+    Object.entries(pending).forEach(([, messages]) => {
       messages.forEach(msg => {
         ws.send(JSON.stringify(msg));
       });
@@ -100,6 +100,9 @@ export function useWebRTC(roomId, userId, wsRef) {
           video: false
         });
         
+        // Clone the stream immediately for VAD before we mutate track.enabled
+        const vadStream = stream.clone();
+
         localStream.current = stream;
         localStream.current.getAudioTracks().forEach(track => {
             track.enabled = !isMuted;
@@ -107,8 +110,6 @@ export function useWebRTC(roomId, userId, wsRef) {
 
         // Initialize VAD (Voice Activity Detection)
         audioContext.current = new (window.AudioContext || window.webkitAudioContext)();
-        
-        const vadStream = stream.clone();
         
         analyser.current = audioContext.current.createAnalyser();
         analyser.current.fftSize = 2048;
@@ -222,10 +223,9 @@ export function useWebRTC(roomId, userId, wsRef) {
         const audioTrack = localStream.current.getAudioTracks()[0];
         if (!audioTrack) return;
         
-        Object.entries(pcs.current).forEach(([targetId, pc]) => {
+        Object.entries(pcs.current).forEach(([, pc]) => {
             const audioSender = pc.getSenders().find(s => s.track?.kind === 'audio' || s.track === null);
             if (audioSender && !audioSender.track) {
-                console.log(`[WebRTC] Replacing empty track for ${targetId}`);
                 audioSender.replaceTrack(audioTrack);
             }
         });

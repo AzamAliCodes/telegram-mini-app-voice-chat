@@ -91,10 +91,10 @@ export default function VoiceChat() {
   const signalingRoomId = isReady ? roomId : null;
   const { ws, connectionStatus } = useSignaling(signalingRoomId, userId, user, onSignalingMessage, joined);
   
-  // Sync ws to ref immediately (outside of useEffect to avoid race conditions with signaling messages)
-  if (ws !== wsRef.current) {
+  // Sync ws to ref
+  useEffect(() => {
     wsRef.current = ws;
-  }
+  }, [ws]);
 
   useEffect(() => {
     if (connectionStatus === 'Connected') {
