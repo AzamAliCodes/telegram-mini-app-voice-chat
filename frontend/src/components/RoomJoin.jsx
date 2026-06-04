@@ -1,9 +1,11 @@
-export default function RoomJoin({ roomId, onJoin, status }) {
-  const isConnecting = status === 'Connecting...' || !status;
-  const isConnected = status === 'Connected';
+export default function RoomJoin({ roomId, onJoin }) {
+  // In LiveKit architecture, we don't connect to signaling until the user clicks Join.
+  // Therefore, we only show a skeleton loader if we are still waiting for Telegram to provide the roomId.
+  const isConnecting = !roomId;
+  const isReady = !!roomId;
 
   const handleJoin = () => {
-    if (!isConnected) return;
+    if (!isReady) return;
     // Standard trick to unlock audio context on mobile/Safari:
     const audio = new Audio();
     audio.play().catch(() => {});
@@ -33,14 +35,14 @@ export default function RoomJoin({ roomId, onJoin, status }) {
             </p>
             <button
               onClick={handleJoin}
-              disabled={!roomId || !isConnected}
+              disabled={!isReady}
               className={`w-full py-3 px-6 rounded-full font-semibold text-lg transition-all duration-300 ${
-                isConnected 
+                isReady 
                 ? 'bg-white/20 hover:bg-white/30 active:scale-95 shadow-lg' 
                 : 'bg-white/5 opacity-40 cursor-not-allowed'
               }`}
             >
-              {isConnected ? 'Join Voice Chat' : 'Connecting...'}
+              Join Voice Chat
             </button>
           </>
         )}
@@ -48,9 +50,9 @@ export default function RoomJoin({ roomId, onJoin, status }) {
       
       {/* Bottom status indicator */}
       <div className="mt-8 flex items-center gap-2 px-4 py-2 bg-black/20 rounded-full backdrop-blur-md">
-        <div className={`w-2 h-2 rounded-full ${isConnected ? 'bg-green-400 animate-pulse' : 'bg-yellow-400 animate-bounce'}`}></div>
+        <div className={`w-2 h-2 rounded-full ${isReady ? 'bg-green-400 animate-pulse' : 'bg-yellow-400 animate-bounce'}`}></div>
         <span className="text-[10px] uppercase tracking-widest text-white/50 font-medium">
-          Signal: {status || 'Initializing'}
+          Status: {isReady ? 'Ready' : 'Initializing'}
         </span>
       </div>
     </div>

@@ -1,12 +1,16 @@
 import { useState } from 'react';
 
-const tg = window?.Telegram?.WebApp;
+const tg = typeof window !== 'undefined' && window?.Telegram?.WebApp ? window.Telegram.WebApp : null;
 
 export function useTelegram() {
   const [isReady] = useState(() => {
     if (tg) {
-      tg.ready();
-      tg.expand();
+      try {
+        tg.ready();
+        tg.expand();
+      } catch (e) {
+        console.error("Telegram SDK ready failed:", e);
+      }
     }
     return true;
   });
@@ -24,7 +28,9 @@ export function useTelegram() {
   };
 
   const enableClosingConfirmation = () => {
-    tg?.enableClosingConfirmation();
+    try {
+        tg?.enableClosingConfirmation();
+    } catch (e) {}
   };
 
   return {
@@ -33,7 +39,7 @@ export function useTelegram() {
     enableClosingConfirmation,
     tg,
     isReady,
-    user: tg?.initDataUnsafe?.user,
+    user: tg?.initDataUnsafe?.user || { id: 'dev_user', first_name: 'Dev' },
     queryId: tg?.initDataUnsafe?.query_id,
   };
 }

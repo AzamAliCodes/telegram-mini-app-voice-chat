@@ -1,8 +1,7 @@
-import { useEffect, useState, useCallback, useRef, useMemo } from 'react';
+import { useEffect, useState, useMemo } from 'react';
 import { useRoomStore } from '../store/roomStore';
 import { useTelegram } from '../hooks/useTelegram';
-import { useSignaling } from '../hooks/useSignaling';
-import { useWebRTC } from '../hooks/useWebRTC';
+import { useLiveKit } from '../hooks/useLiveKit';
 import ParticipantList from './ParticipantList';
 import ControlPanel from './ControlPanel';
 import RoomJoin from './RoomJoin';
@@ -16,7 +15,6 @@ export default function VoiceChat() {
   const { tg, user, isReady, enableClosingConfirmation } = useTelegram();
   const { participants, roomName, showChat, toggleChat, roomEnded, roomNotStarted } = useRoomStore();
   const [joined, setJoined] = useState(false);
-  const wsRef = useRef(null);
 
   const roomId = useMemo(() => {
     let id = tg?.initDataUnsafe?.start_param;
@@ -42,14 +40,12 @@ export default function VoiceChat() {
   // preventing WebSocket connections before the mobile native bridge is up.
   const activeRoomId = (joined && isReady) ? roomId : null;
 
-  const { handleOffer, handleAnswer, handleIceCandidate, handleUserLeft, createPeerConnection, flushOutgoingMessages, resumeAudio } = useWebRTC(activeRoomId, userId, wsRef);
+  const { connectionStatus, resumeAudio, ws } = useLiveKit(activeRoomId, userId, user, joined);
 
   // Global audio unlocker for the very first interaction
   useEffect(() => {
     const unlock = () => {
         resumeAudio();
-        // We keep it active to catch late-arriving tracks, 
-        // but we can remove it if we want to be more efficient.
     };
     window.addEventListener('click', unlock);
     window.addEventListener('touchstart', unlock);
@@ -58,49 +54,6 @@ export default function VoiceChat() {
         window.removeEventListener('touchstart', unlock);
     };
   }, [resumeAudio]);
-
-  const onSignalingMessage = useCallback(async (message) => {
-    try {
-      switch (message.type) {
-        case 'offer':
-          console.log("[VoiceChat] Received offer from", message.from_user_id);
-          await handleOffer(message.from_user_id, message.offer);
-          break;
-        case 'answer':
-          console.log("[VoiceChat] Received answer from", message.from_user_id);
-          await handleAnswer(message.from_user_id, message.answer);
-          break;
-        case 'ice_candidate':
-          await handleIceCandidate(message.from_user_id, message.candidate);
-          break;
-        case 'user_left':
-          handleUserLeft(message.from_user_id);
-          break;
-        case 'user_joined': {
-          console.log("[VoiceChat] User joined, creating connection for", message.from_user_id);
-          createPeerConnection(message.from_user_id);
-          break;
-        }
-      }
-    } catch (e) {
-      console.error("Signaling handler error:", e);
-    }
-  }, [handleOffer, handleAnswer, handleIceCandidate, createPeerConnection, handleUserLeft]);
-
-  // Connect to signaling immediately once Telegram is ready to check room state (ended/not started)
-  const signalingRoomId = isReady ? roomId : null;
-  const { ws, connectionStatus } = useSignaling(signalingRoomId, userId, user, onSignalingMessage, joined);
-  
-  // Sync ws to ref
-  useEffect(() => {
-    wsRef.current = ws;
-  }, [ws]);
-
-  useEffect(() => {
-    if (connectionStatus === 'Connected') {
-        flushOutgoingMessages();
-    }
-  }, [connectionStatus, flushOutgoingMessages]);
 
   const onLeave = () => {
     tg.close();
@@ -115,7 +68,7 @@ export default function VoiceChat() {
   }
 
   if (!joined) {
-    return <RoomJoin roomId={roomId} status={connectionStatus} onJoin={() => {
+    return <RoomJoin roomId={roomId} onJoin={() => {
         setJoined(true);
         resumeAudio();
     }} />;
