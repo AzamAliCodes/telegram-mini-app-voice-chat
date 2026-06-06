@@ -93,7 +93,7 @@ export default function VoiceChat() {
 
       <ChatBubbles />
       <Toast />
-      <ControlPanel onLeave={onLeave} onToggleChat={toggleChat} resumeAudio={resumeAudio} />
+      <ControlPanel onLeave={onLeave} onToggleChat={toggleChat} resumeAudio={resumeAudio} roomId={activeRoomId} userId={userId} user={user} />
     </div>
   );
 }

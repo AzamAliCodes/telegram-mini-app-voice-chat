@@ -1,18 +1,21 @@
 import { Volume2, VolumeX, Mic, MicOff, LogOut, MessageSquare } from 'lucide-react';
 import { useRoomStore } from '../store/roomStore';
+import { sendLog } from '../utils/logger';
 import clsx from 'clsx';
 
-export default function ControlPanel({ onLeave, onToggleChat, resumeAudio }) {
+export default function ControlPanel({ onLeave, onToggleChat, resumeAudio, roomId, userId, user }) {
   const { isMuted, isSpeakerOn, toggleMute, toggleSpeaker } = useRoomStore();
 
   const handleToggleMute = () => {
     resumeAudio();
     toggleMute();
+    sendLog(roomId, userId, user?.first_name || 'Anon', 'mute', { is_muted: !isMuted });
   };
 
   const handleToggleSpeaker = () => {
     resumeAudio();
     toggleSpeaker();
+    sendLog(roomId, userId, user?.first_name || 'Anon', 'speaker', { is_speaker_on: !isSpeakerOn });
   };
 
   const handleLeave = () => {

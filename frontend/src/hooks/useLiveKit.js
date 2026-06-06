@@ -1,6 +1,7 @@
 import { useEffect, useState, useRef, useCallback } from 'react';
 import { Room, RoomEvent, Track } from 'livekit-client';
 import { useRoomStore } from '../store/roomStore';
+import { sendLog } from '../utils/logger';
 
 export function useLiveKit(roomId, userId, user, joined) {
   const [connectionStatus, setConnectionStatus] = useState('Connecting...');
@@ -94,6 +95,8 @@ export function useLiveKit(roomId, userId, user, joined) {
       room.on(RoomEvent.Connected, () => {
           setConnectionStatus('Connected');
           
+          sendLog(roomId, userId, user?.first_name || 'Anon', 'join');
+          
           // FIX: Improve audio publishing stability
           room.startAudio().catch(console.error);
           setTimeout(() => {
@@ -107,6 +110,7 @@ export function useLiveKit(roomId, userId, user, joined) {
 
       room.on(RoomEvent.Disconnected, () => {
           setConnectionStatus('Disconnected');
+          sendLog(roomId, userId, user?.first_name || 'Anon', 'leave');
       });
 
       room.on(RoomEvent.Reconnecting, () => {

@@ -7,6 +7,7 @@ from .api import rooms
 from loguru import logger
 import os
 from livekit import api
+from .core.state import room_participants
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
@@ -28,7 +29,9 @@ app.add_middleware(
 
 @app.middleware("http")
 async def log_requests(request: Request, call_next):
-    logger.info(f"Incoming: {request.method} {request.url.path}")
+    # Skip noisy logs for health checks or favicon
+    if not any(x in request.url.path for x in ["/health", "/favicon"]):
+        logger.info(f"Incoming: {request.method} {request.url.path}")
     response = await call_next(request)
     return response
 
@@ -50,16 +53,17 @@ async def get_livekit_token(request: Request):
         user_name = body.get("user_name", "Anonymous")
         metadata = body.get("metadata", "")
 
-        logger.info(f"[Room: {room_id}] Action: TOKEN_REQUEST | user_id={user_id} name='{user_name}' metadata='{metadata[:100]}...'")
+        count = len(room_participants.get(room_id, set()))
+        logger.info(f"[Room: {room_id}] [Users: {count} ] Action: TOKEN_REQUEST | user_id={user_id} name='{user_name}' metadata='{metadata[:100]}...'")
 
         from .core.redis import redis_client
         room_state = await redis_client.get(f"room:{room_id}:state")
         
         if room_state == "ended":
-            logger.warning(f"[Room: {room_id}] Action: TOKEN_REJECTED | reason='room_ended' user_id={user_id}")
+            logger.warning(f"[Room: {room_id}] [Users: {count} ] Action: TOKEN_REJECTED | reason='room_ended' user_id={user_id}")
             return {"status": "error", "message": "room_ended"}
         elif not room_state:
-            logger.warning(f"[Room: {room_id}] Action: TOKEN_REJECTED | reason='room_not_started' user_id={user_id}")
+            logger.warning(f"[Room: {room_id}] [Users: {count} ] Action: TOKEN_REJECTED | reason='room_not_started' user_id={user_id}")
             return {"status": "error", "message": "room_not_started"}
 
         api_key = os.environ.get("LIVEKIT_API_KEY", "devkey")
@@ -77,11 +81,49 @@ async def get_livekit_token(request: Request):
                 can_publish_data=True
             ))
         
-        logger.info(f"[Room: {room_id}] Action: TOKEN_GRANTED | user_id={user_id}")
+        logger.info(f"[Room: {room_id}] [Users: {count} ] Action: TOKEN_GRANTED | user_id={user_id}")
         return {"status": "ok", "token": token.to_jwt()}
     except Exception as e:
         logger.error(f"Token error: {e}")
         return {"status": "error", "message": "internal_error"}
+
+@app.post("/api/client_event")
+async def client_event(request: Request):
+    try:
+        body = await request.json()
+        event = body.get("event")
+        room_id = body.get("room_id")
+        user_id = body.get("user_id")
+        user_name = body.get("user_name", "Anon")
+
+        if not room_id or not user_id:
+            return {"status": "ok"}
+
+        # Initialize room set if not exists
+        if room_id not in room_participants:
+            room_participants[room_id] = set()
+
+        if event == "join":
+            room_participants[room_id].add(user_id)
+            count = len(room_participants[room_id])
+            logger.info(f"[Room: {room_id}] [Users: {count} ] Action: JOIN | user_id={user_id} name='{user_name}'")
+        elif event == "leave":
+            room_participants[room_id].discard(user_id)
+            count = len(room_participants[room_id])
+            logger.info(f"[Room: {room_id}] [Users: {count} ] Action: LEAVE | user_id={user_id}")
+        elif event == "mute":
+            count = len(room_participants[room_id])
+            is_muted = body.get("is_muted", True)
+            logger.info(f"[Room: {room_id}] [Users: {count} ] Action: MUTE | user_id={user_id} is_muted={is_muted}")
+        elif event == "speaker":
+            count = len(room_participants[room_id])
+            is_speaker_on = body.get("is_speaker_on", True)
+            logger.info(f"[Room: {room_id}] [Users: {count} ] Action: SPEAKER | user_id={user_id} is_speaker_on={is_speaker_on}")
+        
+        return {"status": "ok"}
+    except Exception as e:
+        logger.error(f"Event error: {e}")
+        return {"status": "error"}
 
 app.include_router(rooms.router, prefix="/api")
 
