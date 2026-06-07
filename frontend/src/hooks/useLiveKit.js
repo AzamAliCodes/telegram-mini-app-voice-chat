@@ -8,7 +8,7 @@ export function useLiveKit(roomId, userId, user, joined) {
   const roomRef = useRef(null);
   const reconnectAttempts = useRef(0);
   const prefetchToken = useRef(null);
-  const { setParticipants, addParticipant, removeParticipant, setLocalSpeaking, isMuted, addMessage, addLiveMessage } = useRoomStore();
+  const { setParticipants, addParticipant, removeParticipant, setLocalSpeaking, isMuted, setMessages, addMessage, addLiveMessage } = useRoomStore();
 
   // PRE-FETCH TOKEN OPTIMIZATION
   useEffect(() => {
@@ -59,11 +59,22 @@ export function useLiveKit(roomId, userId, user, joined) {
           return;
       }
       
+      const cleanUrl = backendUrl.replace(/\/$/, '');
+
+      // CHAT HISTORY OPTIMIZATION: Fetch history while connecting
+      fetch(`${cleanUrl}/api/room/${roomId}/history`)
+          .then(res => res.json())
+          .then(data => {
+              if (data.status === 'success') {
+                  setMessages(data.messages);
+              }
+          })
+          .catch(() => console.warn("Failed to fetch chat history"));
+      
       let token = prefetchToken.current;
       
       // If token wasn't pre-fetched in time, fetch it now
       if (!token) {
-          const cleanUrl = backendUrl.replace(/\/$/, '');
           console.log(`[LiveKit] Fetching token from: ${cleanUrl}/api/livekit/token`);
 
           const response = await fetch(`${cleanUrl}/api/livekit/token`, {
@@ -256,7 +267,7 @@ export function useLiveKit(roomId, userId, user, joined) {
       console.error('LiveKit critical error:', e);
       setConnectionStatus(`Error: ${e.message || 'Connection failed'}`);
     }
-  }, [roomId, userId, user, addLiveMessage, addMessage, setLocalSpeaking, setParticipants, addParticipant, removeParticipant]);
+  }, [roomId, userId, user, addLiveMessage, addMessage, setLocalSpeaking, setParticipants, addParticipant, removeParticipant, setMessages]);
 
   useEffect(() => {
       if (joined && roomId) {
@@ -287,6 +298,28 @@ export function useLiveKit(roomId, userId, user, joined) {
                   if (roomRef.current && roomRef.current.state === 'connected') {
                       const payload = new TextEncoder().encode(JSON.stringify(data));
                       roomRef.current.localParticipant.publishData(payload, 1);
+                      
+                      const chatData = {
+                          id: Date.now() + Math.random(),
+                          text: data.text,
+                          sender_name: data.sender_name || user?.first_name || 'You',
+                          from_user_id: userId,
+                      };
+                      
+                      // Instant local update
+                      addMessage(chatData);
+                      addLiveMessage(chatData);
+
+                      // Persist to backend Redis history
+                      const backendUrl = import.meta.env.VITE_BACKEND_URL;
+                      if (backendUrl) {
+                          const cleanUrl = backendUrl.replace(/\/$/, '');
+                          fetch(`${cleanUrl}/api/room/${roomId}/message`, {
+                              method: 'POST',
+                              headers: { 'Content-Type': 'application/json' },
+                              body: JSON.stringify(chatData)
+                          }).catch(() => {});
+                      }
                   }
               }
           } catch (error) {
@@ -297,3 +330,4 @@ export function useLiveKit(roomId, userId, user, joined) {
 
   return { connectionStatus, resumeAudio, ws };
 }
+

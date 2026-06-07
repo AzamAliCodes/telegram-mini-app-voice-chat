@@ -1,14 +1,32 @@
-from fastapi import APIRouter
+import json
+from fastapi import APIRouter, Body
 from ..core.redis import redis_client
 from loguru import logger
 from ..core.state import room_participants
 
 router = APIRouter()
 
+@router.get("/room/{room_id}/history")
+async def get_room_history(room_id: str):
+    # Fetch last 50 messages from Redis list
+    messages_raw = await redis_client.lrange(f"room:{room_id}:history", -50, -1)
+    messages = [json.loads(m) for m in messages_raw]
+    return {"status": "success", "messages": messages}
+
+@router.post("/room/{room_id}/message")
+async def add_message_to_history(room_id: str, data: dict = Body(...)):
+    # Add message to Redis and trim to last 50
+    # Expected data: {id, text, sender_name, from_user_id}
+    msg_json = json.dumps(data)
+    await redis_client.rpush(f"room:{room_id}:history", msg_json)
+    await redis_client.ltrim(f"room:{room_id}:history", -50, -1)
+    return {"status": "success"}
+
 @router.delete("/room/{room_id}")
 async def end_room(room_id: str):
-    # Clear room state in Redis
+    # Clear room state and history in Redis
     await redis_client.delete(f"room:{room_id}:state")
+    await redis_client.delete(f"room:{room_id}:history")
     
     # Clear in-memory participant tracker if it exists
     if room_id in room_participants:

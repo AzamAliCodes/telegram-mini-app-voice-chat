@@ -67,6 +67,7 @@ export const useRoomStore = create((set) => ({
   toggleMute: () => set((state) => ({ isMuted: !state.isMuted })),
   toggleSpeaker: () => set((state) => ({ isSpeakerOn: !state.isSpeakerOn })),
   setRoomName: (name) => set({ roomName: name }),
+  setMessages: (messages) => set({ messages }),
   addMessage: (msg) => set((state) => ({ messages: [...state.messages, msg] })),
   toggleChat: () => set((state) => ({ showChat: !state.showChat })),
 }));
