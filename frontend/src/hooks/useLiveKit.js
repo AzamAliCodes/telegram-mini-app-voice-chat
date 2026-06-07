@@ -162,6 +162,7 @@ export function useLiveKit(roomId, userId, user, joined) {
           participants.push({
               user_id: userId,
               first_name: user?.first_name || 'You',
+              username: user?.username || '',
               photo_url: user?.photo_url || '',
               is_muted: useRoomStore.getState().isMuted,
               is_speaking: room.localParticipant.isSpeaking
@@ -169,14 +170,19 @@ export function useLiveKit(roomId, userId, user, joined) {
 
           room.remoteParticipants.forEach((p) => {
               let p_photo = '';
+              let p_username = '';
               try {
                   const meta = JSON.parse(p.metadata || '{}');
                   p_photo = meta.photo_url || '';
-              } catch {}
+                  p_username = meta.username || '';
+              } catch (err) {
+                  console.warn("Failed to parse participant metadata", err);
+              }
 
               participants.push({
                   user_id: p.identity,
                   first_name: p.name,
+                  username: p_username,
                   photo_url: p_photo,
                   is_muted: !p.isMicrophoneEnabled,
                   is_speaking: p.isSpeaking
@@ -192,17 +198,20 @@ export function useLiveKit(roomId, userId, user, joined) {
           setConnectionStatus('Connected');
 
           let p_photo = '';
+          let p_username = '';
           try {
               const meta = JSON.parse(participant.metadata || '{}');
               p_photo = meta.photo_url || '';
-          } catch (e) {
-              // Ignore invalid JSON in participant metadata
+              p_username = meta.username || '';
+          } catch (err) {
+              console.warn("Failed to parse participant metadata", err);
           }
           
           // Instant UI update
           addParticipant({
               user_id: participant.identity,
               first_name: participant.name,
+              username: p_username,
               photo_url: p_photo,
               is_muted: !participant.isMicrophoneEnabled,
               is_speaking: participant.isSpeaking
@@ -220,8 +229,8 @@ export function useLiveKit(roomId, userId, user, joined) {
           try {
               const meta = JSON.parse(participant.metadata || '{}');
               p_photo = meta.photo_url || '';
-          } catch (e) {
-              // Ignore invalid JSON in participant metadata
+          } catch (err) {
+              console.warn("Failed to parse participant metadata", err);
           }
 
           // Instant UI update (bypass LiveKit SDK delay)

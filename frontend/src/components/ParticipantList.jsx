@@ -28,9 +28,11 @@ export default function ParticipantList({ localUserId }) {
         <ParticipantCard 
           key={p.user_id} 
           name={p.first_name} 
+          username={p.username}
           avatar={p.photo_url}
           isMuted={p.is_muted}
           isSpeaking={p.is_speaking}
+          isLocal={false}
         />
       ))}
 

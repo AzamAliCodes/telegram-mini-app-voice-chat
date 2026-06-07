@@ -1,9 +1,24 @@
-import { MicOff, Mic } from 'lucide-react';
+import { MicOff, Mic, ExternalLink } from 'lucide-react';
+import { useTelegram } from '../hooks/useTelegram';
 import clsx from 'clsx';
 
-export default function ParticipantCard({ name, avatar, isMuted, isSpeaking }) {
+export default function ParticipantCard({ name, username, avatar, isMuted, isSpeaking, isLocal }) {
+  const { tg } = useTelegram();
+
+  const handleTap = () => {
+    if (!isLocal && username) {
+        tg.openTelegramLink(`https://t.me/${username}`);
+    }
+  };
+
   return (
-    <div className="flex items-center justify-between py-3 border-b border-white/5 last:border-0 transition-all duration-300">
+    <div 
+        onClick={handleTap}
+        className={clsx(
+            "flex items-center justify-between py-3 border-b border-white/5 last:border-0 transition-all duration-300",
+            !isLocal && username ? "cursor-pointer active:scale-[0.98] active:bg-white/5 px-2 rounded-xl -mx-2" : ""
+        )}
+    >
       <div className="flex items-center gap-3">
         <div className={clsx(
           "relative w-14 h-14 rounded-full p-[2px] transition-all duration-500",
@@ -25,8 +40,11 @@ export default function ParticipantCard({ name, avatar, isMuted, isSpeaking }) {
             </>
           )}
         </div>
-        <div>
-          <h3 className="text-white font-semibold text-base leading-tight">{name}</h3>
+        <div className="flex flex-col">
+          <div className="flex items-center gap-1.5">
+            <h3 className="text-white font-semibold text-base leading-tight">{name}</h3>
+            {!isLocal && username && <ExternalLink size={12} className="text-white/20" />}
+          </div>
           <p className={clsx(
             "text-[12px] font-medium transition-colors duration-300",
             isSpeaking ? "text-emerald-400" : (isMuted ? "text-white/30" : "text-sky-400/70")

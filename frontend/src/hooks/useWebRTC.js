@@ -370,7 +370,7 @@ export function useWebRTC(roomId, userId, wsRef) {
 
     pcs.current[targetUserId] = pc;
     return pc;
-  }, [wsRef, isSpeakerOn, userId, sendMessage]);
+  }, [isSpeakerOn, sendMessage]);
 
   const handleOffer = useCallback(async (fromUserId, offer) => {
     console.log(`[WebRTC] Handling offer from ${fromUserId}`);
