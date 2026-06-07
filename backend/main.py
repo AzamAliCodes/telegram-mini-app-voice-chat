@@ -92,8 +92,8 @@ async def client_event(request: Request):
     try:
         body = await request.json()
         event = body.get("event")
-        room_id = body.get("room_id")
-        user_id = body.get("user_id")
+        room_id = str(body.get("room_id", ""))
+        user_id = str(body.get("user_id", ""))
         user_name = body.get("user_name", "Anon")
 
         if not room_id or not user_id:
@@ -104,13 +104,17 @@ async def client_event(request: Request):
             room_participants[room_id] = set()
 
         if event == "join":
+            is_new = user_id not in room_participants[room_id]
             room_participants[room_id].add(user_id)
             count = len(room_participants[room_id])
+            # Log join every time for visibility, but track is_new if needed
             logger.info(f"[Room: {room_id}] [Users: {count} ] Action: JOIN | user_id={user_id} name='{user_name}'")
         elif event == "leave":
+            was_present = user_id in room_participants[room_id]
             room_participants[room_id].discard(user_id)
             count = len(room_participants[room_id])
-            logger.info(f"[Room: {room_id}] [Users: {count} ] Action: LEAVE | user_id={user_id}")
+            if was_present:
+                logger.info(f"[Room: {room_id}] [Users: {count} ] Action: LEAVE | user_id={user_id} name='{user_name}'")
         elif event == "mute":
             count = len(room_participants[room_id])
             is_muted = body.get("is_muted", True)

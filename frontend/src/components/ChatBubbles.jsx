@@ -13,8 +13,13 @@ export default function ChatBubbles() {
           key={msg.id}
           className="bg-white/10 backdrop-blur-2xl border border-white/20 rounded-[20px] px-5 py-2.5 max-w-full animate-slide-up shadow-2xl flex flex-col items-center"
         >
-          <div className="text-[10px] font-bold text-white/40 mb-0.5 uppercase tracking-[0.1em]">
-            {msg.sender_name}
+          <div className="flex items-center gap-2 mb-1">
+            {msg.photo_url && (
+              <img src={msg.photo_url} alt="" className="w-4 h-4 rounded-full border border-white/20" />
+            )}
+            <div className="text-[10px] font-bold text-white/40 uppercase tracking-[0.1em]">
+              {msg.sender_name}
+            </div>
           </div>
           <div className="text-white text-[15px] font-medium leading-tight text-center">
             {msg.text}

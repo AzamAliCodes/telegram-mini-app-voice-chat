@@ -195,7 +195,9 @@ export function useLiveKit(roomId, userId, user, joined) {
           try {
               const meta = JSON.parse(participant.metadata || '{}');
               p_photo = meta.photo_url || '';
-          } catch {}
+          } catch (e) {
+              // Ignore invalid JSON in participant metadata
+          }
           
           // Instant UI update
           addParticipant({
@@ -208,17 +210,27 @@ export function useLiveKit(roomId, userId, user, joined) {
 
           setNotification({ 
               message: `${participant.name || 'Someone'} joined`, 
-              type: 'success' 
+              type: 'success',
+              photo_url: p_photo
           });
       });
 
       room.on(RoomEvent.ParticipantDisconnected, (participant) => {
+          let p_photo = '';
+          try {
+              const meta = JSON.parse(participant.metadata || '{}');
+              p_photo = meta.photo_url || '';
+          } catch (e) {
+              // Ignore invalid JSON in participant metadata
+          }
+
           // Instant UI update (bypass LiveKit SDK delay)
           removeParticipant(participant.identity);
           
           setNotification({ 
               message: `${participant.name || 'Someone'} left`, 
-              type: 'info' 
+              type: 'info',
+              photo_url: p_photo
           });
       });
       room.on(RoomEvent.ActiveSpeakersChanged, (speakers) => {
@@ -234,22 +246,37 @@ export function useLiveKit(roomId, userId, user, joined) {
           try {
               const msg = JSON.parse(new TextDecoder().decode(payload));
               if (msg.type === 'chat_message') {
+                  let p_photo = '';
+                  if (participant) {
+                      try {
+                          const meta = JSON.parse(participant.metadata || '{}');
+                          p_photo = meta.photo_url || '';
+                      } catch (e) {
+                          console.warn("Failed to parse participant metadata in message", e);
+                      }
+                  }
+
                   const chatData = {
                       text: msg.text,
                       sender_name: participant?.name || 'Unknown',
                       from_user_id: participant?.identity,
+                      photo_url: p_photo
                   };
                   addMessage(chatData);
                   addLiveMessage(chatData);
               }
-          } catch {}
+          } catch (e) {
+              console.warn("Failed to parse incoming data packet", e);
+          }
       });
 
       room.on(RoomEvent.TrackSubscribed, (track) => {
           if (track.kind === Track.Kind.Audio) {
               const element = track.attach();
               document.body.appendChild(element);
-              element.play().catch(() => {});
+              element.play().catch((e) => {
+                  console.warn("Autoplay block prevented audio playback", e);
+              });
           }
       });
 
@@ -271,7 +298,9 @@ export function useLiveKit(roomId, userId, user, joined) {
 
   useEffect(() => {
       if (joined && roomId) {
-          connectToLiveKit();
+          // Resolve cascading render lint error by deferring state update to next tick
+          const task = setTimeout(() => connectToLiveKit(), 0);
+          return () => clearTimeout(task);
       }
       return () => {
           if (roomRef.current) {
@@ -282,12 +311,16 @@ export function useLiveKit(roomId, userId, user, joined) {
 
   useEffect(() => {
       if (roomRef.current && roomRef.current.state === 'connected') {
-          roomRef.current.localParticipant.setMicrophoneEnabled(!isMuted).catch(console.error);
+          roomRef.current.localParticipant.setMicrophoneEnabled(!isMuted).catch((e) => {
+              console.error("Failed to toggle microphone state", e);
+          });
       }
   }, [isMuted]);
 
   const resumeAudio = () => {
-      roomRef.current?.startAudio().catch(console.error);
+      roomRef.current?.startAudio().catch((e) => {
+          console.error("Failed to resume audio on user interaction", e);
+      });
   };
 
   const ws = {
@@ -304,6 +337,7 @@ export function useLiveKit(roomId, userId, user, joined) {
                           text: data.text,
                           sender_name: data.sender_name || user?.first_name || 'You',
                           from_user_id: userId,
+                          photo_url: user?.photo_url || ''
                       };
                       
                       // Instant local update
@@ -318,7 +352,9 @@ export function useLiveKit(roomId, userId, user, joined) {
                               method: 'POST',
                               headers: { 'Content-Type': 'application/json' },
                               body: JSON.stringify(chatData)
-                          }).catch(() => {});
+                          }).catch((e) => {
+                              console.warn("Failed to persist message to history", e);
+                          });
                       }
                   }
               }

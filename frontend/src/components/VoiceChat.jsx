@@ -13,7 +13,7 @@ import ChatBubbles from './ChatBubbles';
 import SkeletonLoader from './SkeletonLoader';
 
 export default function VoiceChat() {
-  const { tg, user, isReady, enableClosingConfirmation } = useTelegram();
+  const { tg, user, enableClosingConfirmation } = useTelegram();
   const { participants, roomName, showChat, toggleChat, roomEnded, roomNotStarted } = useRoomStore();
   const [joined, setJoined] = useState(false);
 
@@ -37,11 +37,9 @@ export default function VoiceChat() {
   const [fallbackId] = useState(() => `anon_${Math.floor(Math.random() * 1000000)}`);
   const userId = user?.id?.toString() || fallbackId;
 
-  // Only pass roomId to hooks if 'joined' AND Telegram SDK is ready,
-  // preventing WebSocket connections before the mobile native bridge is up.
-  const activeRoomId = (joined && isReady) ? roomId : null;
-
-  const { connectionStatus, resumeAudio, ws } = useLiveKit(activeRoomId, userId, user, joined);
+  // We pass the stable roomId to useLiveKit so it can pre-fetch and handle state correctly.
+  // The 'joined' flag inside the hook will control when the actual WebRTC connection happens.
+  const { connectionStatus, resumeAudio, ws } = useLiveKit(roomId, userId, user, joined);
 
   // Global audio unlocker for the very first interaction
   useEffect(() => {
@@ -56,8 +54,24 @@ export default function VoiceChat() {
     };
   }, [resumeAudio]);
 
+  // Proactively send leave event when app is closed/unloaded
+  useEffect(() => {
+    const handleUnload = () => {
+        if (joined) {
+            import('../utils/logger').then(({ sendLog }) => {
+                sendLog(roomId, userId, user?.first_name || 'Anon', 'leave');
+            });
+        }
+    };
+    window.addEventListener('beforeunload', handleUnload);
+    return () => window.removeEventListener('beforeunload', handleUnload);
+  }, [joined, roomId, userId, user]);
+
   const onLeave = () => {
-    tg.close();
+    import('../utils/logger').then(({ sendLog }) => {
+        sendLog(roomId, userId, user?.first_name || 'Anon', 'leave');
+        tg.close();
+    });
   };
 
   if (roomEnded) {
@@ -103,7 +117,7 @@ export default function VoiceChat() {
 
       <ChatBubbles />
       <Toast />
-      <ControlPanel onLeave={onLeave} onToggleChat={toggleChat} resumeAudio={resumeAudio} roomId={activeRoomId} userId={userId} user={user} />
+      <ControlPanel onLeave={onLeave} onToggleChat={toggleChat} resumeAudio={resumeAudio} roomId={roomId} userId={userId} user={user} />
     </div>
   );
 }

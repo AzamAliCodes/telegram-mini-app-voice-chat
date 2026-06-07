@@ -29,8 +29,11 @@ export function useTelegram() {
 
   const enableClosingConfirmation = () => {
     try {
-        tg?.enableClosingConfirmation();
-    } catch (e) {}
+      tg.enableClosingConfirmation();
+    } catch (err) {
+      // Telegram SDK might not be available in non-Telegram environments
+      console.debug("Telegram closing confirmation not supported", err);
+    }
   };
 
   return {

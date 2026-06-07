@@ -10,7 +10,10 @@ export default function Toast() {
                   'bg-white/20';
 
   return (
-    <div className={`fixed bottom-28 left-1/2 -translate-x-1/2 z-50 px-4 py-2 rounded-full backdrop-blur-md border border-white/20 text-white text-sm font-medium shadow-lg transition-all animate-slide-up ${bgClass}`}>
+    <div className={`fixed bottom-28 left-1/2 -translate-x-1/2 z-50 px-3.5 py-2 rounded-full backdrop-blur-md border border-white/20 text-white text-sm font-medium shadow-lg transition-all animate-slide-up flex items-center gap-2.5 ${bgClass}`}>
+      {notification.photo_url && (
+        <img src={notification.photo_url} alt="" className="w-5 h-5 rounded-full border border-white/10" />
+      )}
       {notification.message}
     </div>
   );
