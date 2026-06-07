@@ -12,6 +12,7 @@ import WelcomeView from './WelcomeView';
 import Toast from './Toast';
 import ChatBubbles from './ChatBubbles';
 import SkeletonLoader from './SkeletonLoader';
+import { sendLog } from '../utils/logger';
 
 export default function VoiceChat() {
   const { tg, user, enableClosingConfirmation } = useTelegram();
@@ -59,9 +60,7 @@ export default function VoiceChat() {
   useEffect(() => {
     const handleUnload = () => {
         if (joined && roomId) {
-            import('../utils/logger').then(({ sendLog }) => {
-                sendLog(roomId, userId, user?.first_name || 'Anon', 'leave');
-            });
+            sendLog(roomId, userId, user?.first_name || 'Anon', 'leave');
         }
     };
     window.addEventListener('beforeunload', handleUnload);
@@ -70,13 +69,9 @@ export default function VoiceChat() {
 
   const onLeave = () => {
     if (joined && roomId) {
-        import('../utils/logger').then(({ sendLog }) => {
-            sendLog(roomId, userId, user?.first_name || 'Anon', 'leave');
-            tg.close();
-        });
-    } else {
-        tg.close();
+        sendLog(roomId, userId, user?.first_name || 'Anon', 'leave');
     }
+    tg.close();
   };
 
   if (!roomId) {

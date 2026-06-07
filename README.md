@@ -37,9 +37,10 @@ The system is built as a monorepo containing three core services:
 ## 🚀 Key Features
 
 - **Scalable HD Voice**: Powered by LiveKit SFU for unlimited participants and crystal-clear Opus audio.
-- **Advanced Anti-DDoS**: Multi-layer protection (Nginx Rate Limiting + FastAPI Throttling + Azure/HF Real-IP resolution).
-- **Free & Open for All**: No subscription or payment system — fully accessible.
-- **Modern UI**: Frosted glass cards, purple gradients, and real-time speaking animations.
+- **No UDP Limit Performance**: Unlocked network throughput with optimized port multiplexing and expanded file descriptors. Zero software-level bottlenecks for high-concurrency voice traffic.
+- **Advanced Anti-DDoS**: Multi-layer hardware and software protection (Nginx Rate Limiting + FastAPI Throttling + Azure/HF Real-IP resolution + Redis-backed IP tracking).
+- **Premium UX**: Instant connection flow with high-speed Skeleton Loading and background token pre-fetching.
+- **Modern UI**: Frosted glass cards, purple gradients, and real-time social avatars in chat and notifications.
 - **Group Authorization**: Secure whitelist system to restrict bot usage to approved groups only.
 
 ---

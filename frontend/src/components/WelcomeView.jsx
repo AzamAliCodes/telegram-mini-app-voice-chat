@@ -1,4 +1,4 @@
-import { MessageSquare, Users, ShieldCheck } from 'lucide-react';
+import { MessageSquare, ShieldCheck, Zap, Mic2 } from 'lucide-react';
 
 export default function WelcomeView({ onClose }) {
   return (
@@ -16,25 +16,29 @@ export default function WelcomeView({ onClose }) {
         </p>
 
         {/* Feature Grid */}
-        <div className="grid grid-cols-1 gap-4 w-full mb-8 text-left">
+        <div className="grid grid-cols-1 gap-3 w-full mb-8 text-left">
             <div className="flex items-center gap-3 bg-white/5 p-3 rounded-2xl border border-white/5">
-                <Users size={18} className="text-emerald-400" />
-                <span className="text-xs font-medium">Join public & private group calls</span>
+                <Mic2 size={18} className="text-emerald-400" />
+                <span className="text-xs font-medium">Crystal clear HD voice calls</span>
+            </div>
+            <div className="flex items-center gap-3 bg-white/5 p-3 rounded-2xl border border-white/5">
+                <Zap size={18} className="text-amber-400" />
+                <span className="text-xs font-medium">No UDP Limit performance</span>
             </div>
             <div className="flex items-center gap-3 bg-white/5 p-3 rounded-2xl border border-white/5">
                 <MessageSquare size={18} className="text-sky-400" />
-                <span className="text-xs font-medium">Real-time chat & live notifications</span>
+                <span className="text-xs font-medium">Real-time chat & interactions</span>
             </div>
             <div className="flex items-center gap-3 bg-white/5 p-3 rounded-2xl border border-white/5">
                 <ShieldCheck size={18} className="text-purple-400" />
-                <span className="text-xs font-medium">Anti-DDoS protected connection</span>
+                <span className="text-xs font-medium">Anti-DDoS secure connection</span>
             </div>
         </div>
 
         <div className="w-full space-y-3">
             <p className="text-[10px] uppercase tracking-widest text-white/40 font-bold mb-2">How to join?</p>
-            <div className="bg-emerald-500/10 text-emerald-300 text-xs py-3 px-4 rounded-xl border border-emerald-500/20">
-                To enter a room, please open this app from a <b>group chat link</b> or use the bot commands.
+            <div className="bg-emerald-500/10 text-emerald-300 text-xs py-3.5 px-4 rounded-xl border border-emerald-500/20 leading-normal">
+                Please <b>start a Voice Chat</b> in your group using bot commands and join using the link provided by the bot.
             </div>
             
             <button

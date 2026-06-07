@@ -87,7 +87,8 @@ async def get_livekit_token(request: Request):
         logger.error(f"Token error: {e}")
         return {"status": "error", "message": "internal_error"}
 
-@app.post("/api/client_event")
+# Limit client events to 10 requests per minute to prevent log spam/DDoS
+@app.post("/api/client_event", dependencies=[Depends(RateLimiter(times=10, seconds=60))])
 async def client_event(request: Request):
     try:
         body = await request.json()

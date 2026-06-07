@@ -15,6 +15,10 @@ services:
     depends_on: [mongo, redis]
     restart: always
     networks: [vcnet]
+    ulimits:
+      nofile:
+        soft: 65535
+        hard: 65535
 
   frontend:
     build: ./frontend
@@ -40,8 +44,13 @@ services:
       - "7880:7880"
       - "7881:7881"
       - "7882:7882/udp"
+      - "50000-50050:50000-50050/udp"
     networks: [vcnet]
     restart: always
+    ulimits:
+      nofile:
+        soft: 65535
+        hard: 65535
 
   nginx:
     image: nginx:alpine

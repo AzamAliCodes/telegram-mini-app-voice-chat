@@ -2,19 +2,21 @@ import json
 from fastapi import APIRouter, Body
 from ..core.redis import redis_client
 from loguru import logger
-from ..core.state import room_participants
+from fastapi_limiter.depends import RateLimiter
+from fastapi import APIRouter, Body, Depends
 
 router = APIRouter()
 
-@router.get("/room/{room_id}/history")
+@router.get("/room/{room_id}/history", dependencies=[Depends(RateLimiter(times=10, seconds=60))])
 async def get_room_history(room_id: str):
     # Fetch last 50 messages from Redis list
     messages_raw = await redis_client.lrange(f"room:{room_id}:history", -50, -1)
     messages = [json.loads(m) for m in messages_raw]
     return {"status": "success", "messages": messages}
 
-@router.post("/room/{room_id}/message")
+@router.post("/room/{room_id}/message", dependencies=[Depends(RateLimiter(times=30, seconds=60))])
 async def add_message_to_history(room_id: str, data: dict = Body(...)):
+
     # Add message to Redis and trim to last 50
     # Expected data: {id, text, sender_name, from_user_id}
     msg_json = json.dumps(data)
