@@ -1,5 +1,5 @@
 import { useEffect, useState, useRef, useCallback } from 'react';
-import { Room, RoomEvent, Track } from 'livekit-client';
+import { Room, RoomEvent, Track, DisconnectReason } from 'livekit-client';
 import { useRoomStore } from '../store/roomStore';
 import { sendLog } from '../utils/logger';
 
@@ -7,72 +7,102 @@ export function useLiveKit(roomId, userId, user, joined) {
   const [connectionStatus, setConnectionStatus] = useState('Connecting...');
   const roomRef = useRef(null);
   const reconnectAttempts = useRef(0);
-  const reconnectDelay = useRef(3000);
-  const { setParticipants, setLocalSpeaking, isMuted, addMessage, addLiveMessage } = useRoomStore();
+  const prefetchToken = useRef(null);
+  const { setParticipants, addParticipant, removeParticipant, setLocalSpeaking, isMuted, addMessage, addLiveMessage } = useRoomStore();
+
+  // PRE-FETCH TOKEN OPTIMIZATION
+  useEffect(() => {
+      if (roomId && userId && !joined && !prefetchToken.current) {
+          const backendUrl = import.meta.env.VITE_BACKEND_URL;
+          if (!backendUrl) return;
+          const cleanUrl = backendUrl.replace(/\/$/, '');
+          
+          fetch(`${cleanUrl}/api/livekit/token`, {
+              method: 'POST',
+              headers: { 'Content-Type': 'application/json' },
+              body: JSON.stringify({ 
+                  room_id: roomId, 
+                  user_id: userId, 
+                  user_name: user?.first_name || 'Anon',
+                  metadata: JSON.stringify({ 
+                      username: user?.username || '',
+                      photo_url: user?.photo_url || ''
+                  })
+              })
+          })
+          .then(res => res.json())
+          .then(data => {
+              if (data.status === 'ok') {
+                  prefetchToken.current = data.token;
+                  console.log("[LiveKit] Token pre-fetched successfully.");
+              }
+          })
+          .catch(() => console.warn("[LiveKit] Token pre-fetch failed."));
+      }
+  }, [roomId, userId, user, joined]);
 
   const connectToLiveKit = useCallback(async () => {
     // Anti-DDoS: Prevent infinite rapid reconnection loops
     if (reconnectAttempts.current > 10) {
         console.error("Too many reconnection attempts. Standing down.");
-        setConnectionStatus('Error (Too many attempts)');
+        setConnectionStatus('Connection Failed');
         return;
     }
 
     try {
-      setConnectionStatus('Generating Token...');
+      setConnectionStatus('Connecting to VC...');
       
       const backendUrl = import.meta.env.VITE_BACKEND_URL;
       if (!backendUrl) {
           console.error("VITE_BACKEND_URL is missing!");
-          setConnectionStatus('Error: VITE_BACKEND_URL not set in Netlify');
+          setConnectionStatus('Error: VITE_BACKEND_URL not set');
           return;
       }
       
-      const cleanUrl = backendUrl.replace(/\/$/, '');
-      console.log(`[LiveKit] Fetching token from: ${cleanUrl}/api/livekit/token`);
+      let token = prefetchToken.current;
+      
+      // If token wasn't pre-fetched in time, fetch it now
+      if (!token) {
+          const cleanUrl = backendUrl.replace(/\/$/, '');
+          console.log(`[LiveKit] Fetching token from: ${cleanUrl}/api/livekit/token`);
 
-      // FIX: Ensure photo_url is actually sent in metadata
-      const response = await fetch(`${cleanUrl}/api/livekit/token`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ 
-            room_id: roomId, 
-            user_id: userId, 
-            user_name: user?.first_name || 'Anon',
-            metadata: JSON.stringify({ 
-                username: user?.username || '',
-                photo_url: user?.photo_url || ''
+          const response = await fetch(`${cleanUrl}/api/livekit/token`, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ 
+                room_id: roomId, 
+                user_id: userId, 
+                user_name: user?.first_name || 'Anon',
+                metadata: JSON.stringify({ 
+                    username: user?.username || '',
+                    photo_url: user?.photo_url || ''
+                })
             })
-        })
-      });
+          });
 
-      if (response.status === 429) {
-          setConnectionStatus('Throttled: Too many requests');
-          return;
-      }
-
-      if (!response.ok) {
-          const errText = await response.text().catch(() => 'Unknown error');
-          console.error(`Backend Error (${response.status}):`, errText);
-          setConnectionStatus(`Error: Backend returned ${response.status}`);
-          return;
-      }
-
-      const data = await response.json();
-      
-      if (data.status === 'error') {
-          setConnectionStatus(`Error: ${data.message}`);
-          if (data.message === 'room_ended') {
-              useRoomStore.getState().setRoomEnded(true);
-          } else if (data.message === 'room_not_started') {
-              useRoomStore.getState().setRoomNotStarted(true);
+          if (response.status === 429) {
+              setConnectionStatus('Too many tries from this IP. Please exit and try again in 1 min.');
+              return;
           }
-          return;
-      }
 
-      const token = data.token;
-      reconnectAttempts.current = 0;
-      reconnectDelay.current = 3000; 
+          if (!response.ok) {
+              setConnectionStatus(`Error: Backend returned ${response.status}`);
+              return;
+          }
+
+          const data = await response.json();
+          
+          if (data.status === 'error') {
+              setConnectionStatus(`Error: ${data.message}`);
+              if (data.message === 'room_ended') {
+                  useRoomStore.getState().setRoomEnded(true);
+              } else if (data.message === 'room_not_started') {
+                  useRoomStore.getState().setRoomNotStarted(true);
+              }
+              return;
+          }
+          token = data.token;
+      }
 
       const wsUrl = import.meta.env.VITE_LIVEKIT_URL;
       if (!wsUrl) {
@@ -94,22 +124,21 @@ export function useLiveKit(roomId, userId, user, joined) {
 
       room.on(RoomEvent.Connected, () => {
           setConnectionStatus('Connected');
-          
           sendLog(roomId, userId, user?.first_name || 'Anon', 'join');
           
-          // FIX: Improve audio publishing stability
           room.startAudio().catch(console.error);
-          setTimeout(() => {
-              if (room.state === 'connected') {
-                  room.localParticipant.setMicrophoneEnabled(!useRoomStore.getState().isMuted).catch(console.error);
-              }
-          }, 1000);
-          
+          if (room.state === 'connected') {
+              room.localParticipant.setMicrophoneEnabled(!useRoomStore.getState().isMuted).catch(console.error);
+          }
           updateParticipants();
       });
 
-      room.on(RoomEvent.Disconnected, () => {
-          setConnectionStatus('Disconnected');
+      room.on(RoomEvent.Disconnected, (reason) => {
+          if (reason === DisconnectReason.DUPLICATE_IDENTITY) {
+              setConnectionStatus('Joined from another device');
+          } else {
+              setConnectionStatus('Disconnected');
+          }
           sendLog(roomId, userId, user?.first_name || 'Anon', 'leave');
       });
 
@@ -117,11 +146,8 @@ export function useLiveKit(roomId, userId, user, joined) {
           setConnectionStatus('Reconnecting...');
       });
 
-      // Participant events
       const updateParticipants = () => {
           const participants = [];
-          
-          // Add local
           participants.push({
               user_id: userId,
               first_name: user?.first_name || 'You',
@@ -130,15 +156,12 @@ export function useLiveKit(roomId, userId, user, joined) {
               is_speaking: room.localParticipant.isSpeaking
           });
 
-          // Add remotes
           room.remoteParticipants.forEach((p) => {
               let p_photo = '';
               try {
                   const meta = JSON.parse(p.metadata || '{}');
                   p_photo = meta.photo_url || '';
-              } catch {
-                  // Fallback
-              }
+              } catch {}
 
               participants.push({
                   user_id: p.identity,
@@ -148,12 +171,45 @@ export function useLiveKit(roomId, userId, user, joined) {
                   is_speaking: p.isSpeaking
               });
           });
-          
           setParticipants(participants);
       };
 
-      room.on(RoomEvent.ParticipantConnected, updateParticipants);
-      room.on(RoomEvent.ParticipantDisconnected, updateParticipants);
+      const { setNotification } = useRoomStore.getState();
+
+      room.on(RoomEvent.ParticipantConnected, (participant) => {
+          // Force UI to drop skeleton loader immediately
+          setConnectionStatus('Connected');
+
+          let p_photo = '';
+          try {
+              const meta = JSON.parse(participant.metadata || '{}');
+              p_photo = meta.photo_url || '';
+          } catch {}
+          
+          // Instant UI update
+          addParticipant({
+              user_id: participant.identity,
+              first_name: participant.name,
+              photo_url: p_photo,
+              is_muted: !participant.isMicrophoneEnabled,
+              is_speaking: participant.isSpeaking
+          });
+
+          setNotification({ 
+              message: `${participant.name || 'Someone'} joined`, 
+              type: 'success' 
+          });
+      });
+
+      room.on(RoomEvent.ParticipantDisconnected, (participant) => {
+          // Instant UI update (bypass LiveKit SDK delay)
+          removeParticipant(participant.identity);
+          
+          setNotification({ 
+              message: `${participant.name || 'Someone'} left`, 
+              type: 'info' 
+          });
+      });
       room.on(RoomEvent.ActiveSpeakersChanged, (speakers) => {
           updateParticipants();
           const isLocal = speakers.some(s => s.identity === userId);
@@ -163,7 +219,6 @@ export function useLiveKit(roomId, userId, user, joined) {
       room.on(RoomEvent.TrackMuted, updateParticipants);
       room.on(RoomEvent.TrackUnmuted, updateParticipants);
 
-      // Handle Data (Chat Messages)
       room.on(RoomEvent.DataReceived, (payload, participant) => {
           try {
               const msg = JSON.parse(new TextDecoder().decode(payload));
@@ -176,20 +231,14 @@ export function useLiveKit(roomId, userId, user, joined) {
                   addMessage(chatData);
                   addLiveMessage(chatData);
               }
-          } catch {
-              console.error('Failed to parse chat message');
-          }
+          } catch {}
       });
 
-      // Handle Remote Audio Tracks
       room.on(RoomEvent.TrackSubscribed, (track) => {
           if (track.kind === Track.Kind.Audio) {
               const element = track.attach();
               document.body.appendChild(element);
-              // Ensure it plays
-              element.play().catch(() => {
-                  console.warn("Autoplay blocked, user interaction required to hear audio");
-              });
+              element.play().catch(() => {});
           }
       });
 
@@ -198,17 +247,20 @@ export function useLiveKit(roomId, userId, user, joined) {
       });
 
       await room.connect(wsUrl, token);
+      
+      if (room.state === 'connected') {
+          setConnectionStatus('Connected');
+      }
 
     } catch (e) {
       console.error('LiveKit critical error:', e);
       setConnectionStatus(`Error: ${e.message || 'Connection failed'}`);
     }
-  }, [roomId, userId, user, addLiveMessage, addMessage, setLocalSpeaking, setParticipants]);
+  }, [roomId, userId, user, addLiveMessage, addMessage, setLocalSpeaking, setParticipants, addParticipant, removeParticipant]);
 
   useEffect(() => {
       if (joined && roomId) {
-          const timeout = setTimeout(() => connectToLiveKit(), 0);
-          return () => clearTimeout(timeout);
+          connectToLiveKit();
       }
       return () => {
           if (roomRef.current) {

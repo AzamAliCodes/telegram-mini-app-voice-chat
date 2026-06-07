@@ -10,6 +10,7 @@ import RoomEnded from './RoomEnded';
 import RoomNotStarted from './RoomNotStarted';
 import Toast from './Toast';
 import ChatBubbles from './ChatBubbles';
+import SkeletonLoader from './SkeletonLoader';
 
 export default function VoiceChat() {
   const { tg, user, isReady, enableClosingConfirmation } = useTelegram();
@@ -75,12 +76,15 @@ export default function VoiceChat() {
   }
 
 
+  // Immediately hide skeleton if we are connected OR if we already see remote participants
+  const hasRemoteParticipants = participants.length > 1;
+  const isConnected = connectionStatus === 'Connected' || hasRemoteParticipants;
+
   return (
     <div className="flex flex-col h-screen bg-gradient-to-br from-[#5B6BC0] via-[#4A3080] to-[#8B5A7A] p-4 font-sans text-white overflow-hidden">
       <div className="flex items-center justify-between mb-2 px-2">
         <div className="flex flex-col">
             <h1 className="text-xl font-bold tracking-tight">{roomName || 'Group Voice Chat'}</h1>
-            <span className="text-[10px] text-white/50">{connectionStatus}</span>
         </div>
         <div className="bg-white/10 px-3 py-1 rounded-full text-xs text-white/70">
           {participants.filter(p => String(p.user_id) !== String(userId)).length + 1} online
@@ -88,7 +92,13 @@ export default function VoiceChat() {
       </div>
 
       <div className="flex-1 bg-white/15 backdrop-blur-xl border border-white/20 rounded-[24px] p-5 mb-6 overflow-y-auto relative">
-        {showChat ? <ChatPanel ws={ws} /> : <ParticipantList localUserId={userId} />}
+        {!isConnected ? (
+          <SkeletonLoader status={connectionStatus} />
+        ) : showChat ? (
+          <ChatPanel ws={ws} />
+        ) : (
+          <ParticipantList localUserId={userId} />
+        )}
       </div>
 
       <ChatBubbles />
