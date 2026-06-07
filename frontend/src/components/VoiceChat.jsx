@@ -8,6 +8,7 @@ import RoomJoin from './RoomJoin';
 import ChatPanel from './ChatPanel';
 import RoomEnded from './RoomEnded';
 import RoomNotStarted from './RoomNotStarted';
+import WelcomeView from './WelcomeView';
 import Toast from './Toast';
 import ChatBubbles from './ChatBubbles';
 import SkeletonLoader from './SkeletonLoader';
@@ -27,7 +28,7 @@ export default function VoiceChat() {
             id = rawUrl.split('room=')[1].split('&')[0].split('#')[0];
         }
     }
-    return id || 'default_room';
+    return id || null; // Return null if no room specified
   }, [tg]);
 
   useEffect(() => {
@@ -57,7 +58,7 @@ export default function VoiceChat() {
   // Proactively send leave event when app is closed/unloaded
   useEffect(() => {
     const handleUnload = () => {
-        if (joined) {
+        if (joined && roomId) {
             import('../utils/logger').then(({ sendLog }) => {
                 sendLog(roomId, userId, user?.first_name || 'Anon', 'leave');
             });
@@ -68,11 +69,19 @@ export default function VoiceChat() {
   }, [joined, roomId, userId, user]);
 
   const onLeave = () => {
-    import('../utils/logger').then(({ sendLog }) => {
-        sendLog(roomId, userId, user?.first_name || 'Anon', 'leave');
+    if (joined && roomId) {
+        import('../utils/logger').then(({ sendLog }) => {
+            sendLog(roomId, userId, user?.first_name || 'Anon', 'leave');
+            tg.close();
+        });
+    } else {
         tg.close();
-    });
+    }
   };
+
+  if (!roomId) {
+    return <WelcomeView onClose={onLeave} />;
+  }
 
   if (roomEnded) {
     return <RoomEnded onClose={onLeave} />;
