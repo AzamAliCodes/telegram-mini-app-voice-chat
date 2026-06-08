@@ -38,6 +38,15 @@ async def start_vc_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
     try: asyncio.create_task(update.message.delete())
     except: pass
 
+    group = await groups_collection.find_one({"_id": chat_id})
+    if (group and group.get("active_session")) or (chat_id in msg_id_cache):
+        room_id = group.get("active_session", {}).get("room_id") if group and group.get("active_session") else str(abs(int(chat_id)))
+        bot_username = os.getenv("TELEGRAM_BOT_USERNAME", "tgvcgroup_bot")
+        miniapp_link = f"https://t.me/{bot_username}/app?startapp={room_id}"
+        keyboard = InlineKeyboardMarkup([[InlineKeyboardButton(text="🎙️ Join Voice Chat", url=miniapp_link)]])
+        await context.bot.send_message(chat_id=chat_id, text="🎙️ An active voice chat session is currently running!", reply_markup=keyboard)
+        return
+
     # Instant Local Setup for STARTing
     room_id = str(abs(int(chat_id)))
     bot_username = os.getenv("TELEGRAM_BOT_USERNAME", "tgvcgroup_bot")
@@ -173,7 +182,15 @@ async def end_vc_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
             if not msg_id:
                 # Fallback to DB if cache missed
                 group = await groups_collection.find_one({"_id": chat_id})
-                msg_id = group.get("active_session", {}).get("msg_id") if group else None
+                if not group or not group.get("active_session"):
+                    status_msg = await context.bot.send_message(chat_id=chat_id, text="❌ There is currently no active voice chat session to end.")
+                    async def auto_delete_status():
+                        await asyncio.sleep(20)
+                        try: await context.bot.delete_message(chat_id=chat_id, message_id=status_msg.message_id)
+                        except: pass
+                    asyncio.create_task(auto_delete_status())
+                    return
+                msg_id = group["active_session"].get("msg_id")
 
             # 2. DELETE JOIN MSG INSTANTLY (Safe fail if not admin)
             if msg_id:

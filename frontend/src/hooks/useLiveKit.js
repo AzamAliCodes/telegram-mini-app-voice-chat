@@ -273,6 +273,8 @@ export function useLiveKit(roomId, userId, user, joined) {
                   };
                   addMessage(chatData);
                   addLiveMessage(chatData);
+              } else if (msg.type === 'room_ended') {
+                  useRoomStore.getState().setRoomEnded(true);
               }
           } catch (e) {
               console.warn("Failed to parse incoming data packet", e);
